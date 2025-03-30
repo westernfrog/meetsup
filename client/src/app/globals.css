@@ -20,8 +20,6 @@ body {
 }
 
 .pattern {
-  background-color: #f5f7fb;
-  opacity: 0.8;
   background-image: radial-gradient(#3b82f6 0.5px, #f5f7fb 0.5px);
   background-size: 10px 10px;
 }

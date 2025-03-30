@@ -13,6 +13,7 @@ model User {
   age              Int
   gender           Gender
   description      String?
+  interests        String[]
   profilePics      String[]
   friendships      Friendship[] @relation("UserFriendships")
   groupMembers     GroupUser[]
