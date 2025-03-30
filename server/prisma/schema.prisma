@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String       @id @default(auto()) @map("_id") @db.ObjectId
+  username         String       @unique
+  age              Int
+  gender           Gender
+  description      String?
+  profilePics      String[]
+  friendships      Friendship[] @relation("UserFriendships")
+  groupMembers     GroupUser[]
+  createdAt        DateTime     @default(now())
+  lastActive       DateTime     @updatedAt
+  sentMessages     Message[]    @relation("SentMessages")
+  receivedMessages Message[]    @relation("ReceivedMessages")
+  Friendship       Friendship[]
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model Friendship {
+  id        String       @id @default(auto()) @map("_id") @db.ObjectId
+  user      User         @relation("UserFriendships", fields: [userId], references: [id])
+  userId    String       @db.ObjectId
+  friend    User         @relation(fields: [friendId], references: [id])
+  friendId  String       @db.ObjectId
+  status    FriendStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+
+  @@unique([userId, friendId], name: "unique_friendship")
+  @@index([userId])
+  @@index([friendId])
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+model Message {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+  senderId   String   @db.ObjectId
+  receiver   User?    @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  receiverId String?  @db.ObjectId
+  group      Group?   @relation(fields: [groupId], references: [id])
+  groupId    String?  @db.ObjectId
+  content    String
+  createdAt  DateTime @default(now())
+
+  @@index([senderId, receiverId])
+  @@index([groupId])
+}
+
+model Group {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  members   GroupUser[]
+  messages  Message[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model GroupUser {
+  id       String   @id @default(auto()) @map("_id") @db.ObjectId
+  group    Group    @relation(fields: [groupId], references: [id])
+  groupId  String   @db.ObjectId
+  user     User     @relation(fields: [userId], references: [id])
+  userId   String   @db.ObjectId
+  role     Role     @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  @@unique([groupId, userId], name: "unique_group_membership")
+}
+
+enum Role {
+  ADMIN
+  MODERATOR
+  MEMBER
+}
