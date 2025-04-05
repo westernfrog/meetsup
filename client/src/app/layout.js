@@ -1,11 +1,12 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Header from "@/components/Header";
-import Overview from "@/components/Overview";
-import UsersList from "@/components/UsersList";
+import { AuthProvider } from "@/contexts/AuthProvider";
+import Provider from "@/contexts/Provider";
+import { ThemeProvider } from "@/contexts/ThemeProvider";
+import { Toaster } from "sonner";
 
 const inter = Inter({
-  variable: "--font-inter",
+  variable: "--font-inter-sans",
   subsets: ["latin"],
 });
 
@@ -16,15 +17,19 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className="h-full">
-      <body className={`${inter.variable} antialiased h-full`}>
-        <main className="fixed inset-3">
-          <div className="grid grid-cols-12 grid-rows-20 gap-3 h-full">
-            <Header />
-            <UsersList />
-            <Overview>{children}</Overview>
-          </div>
-        </main>
+    <html lang="en">
+      <body className={`${inter.variable} antialiased bg-black/90`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <Provider>
+            <AuthProvider>{children}</AuthProvider>
+          </Provider>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -1,212 +1,331 @@
 "use client";
 
-import { useState, Fragment, useRef } from "react";
+import { useState, Fragment, useRef, useEffect } from "react";
 import { Dialog, Transition } from "@headlessui/react";
-import { CirclePlusIcon, XIcon, CameraIcon, Edit2Icon } from "lucide-react";
+import {
+  CirclePlusIcon,
+  XIcon,
+  CameraIcon,
+  Edit2Icon,
+  ChevronDown,
+} from "lucide-react";
 import Image from "next/image";
 import LenisScroll from "@/components/LenisScroll";
+import { useAuth } from "@/contexts/AuthProvider";
 
-export default function Profile(params) {
+export default function Profile() {
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isEditLookingForOpen, setIsEditLookingForOpen] = useState(false);
   const [isAddPhotoOpen, setIsAddPhotoOpen] = useState(false);
   const fileInputRef = useRef();
+  const { user } = useAuth();
 
-  const [profile, setProfile] = useState({
-    name: "Jessica Parker",
-    age: 28,
-    gender: "Female",
-    location: "New York City",
-    description:
-      "Passionate about photography, hiking and discovering new coffee shops. Always up for an adventure or a good conversation.",
-    lookingFor: {
+  const [lookingFor, setLookingFor] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("lookingFor");
+      return saved
+        ? JSON.parse(saved)
+        : {
+            genderPreference: "Male",
+            ageMin: 18,
+            ageMax: 99,
+          };
+    }
+    return {
       genderPreference: "Male",
-      ageMin: 26,
-      ageMax: 35,
-      interests: ["Hiking", "Photography", "Travel", "Food"],
-    },
-    isOnline: true,
-    lastActive: "2 hours ago",
-    photos: [
-      "https://images.unsplash.com/photo-1557296387-5358ad7997bb?q=80&w=1957&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-      "https://images.unsplash.com/photo-1556942057-94aaf3ae5d6e?q=80&w=1964&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-      "https://images.unsplash.com/photo-1555325083-60f59dcd852d?q=80&w=1964&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-      "https://images.unsplash.com/photo-1553455303-5dc18c358c6d?q=80&w=1974&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-    ],
+      ageMin: 18,
+      ageMax: 99,
+    };
   });
 
-  const handlePhotoUpload = (e) => {
+  const [profile, setProfile] = useState({
+    name: "",
+    age: "",
+    gender: "",
+    description: "",
+    photos: [],
+    interests: [],
+  });
+
+  useEffect(() => {
+    if (user) {
+      setProfile({
+        name: user.name || "",
+        age: user.age?.toString() || "",
+        gender: user.gender
+          ? user.gender.charAt(0) + user.gender.slice(1).toLowerCase()
+          : "",
+        description:
+          user.description ||
+          "No description available. Add a description to tell others about yourself.",
+        photos: user.profilePics || [],
+        interests: user.interests || [],
+      });
+    }
+  }, [user]);
+
+  const getAvatarFallback = () => {
+    if (!user?.name) return "👤";
+    return user.name.charAt(0).toUpperCase();
+  };
+
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const newPhoto = event.target.result;
+    try {
+      const formData = new FormData();
+      formData.append("photos", file);
+
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/auth/upload-photos`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
       setProfile((prev) => ({
         ...prev,
-        photos: [...prev.photos, newPhoto],
+        photos: [...prev.photos, data.url],
       }));
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error("Upload error:", error);
+    }
   };
 
-  const handleSetMainPhoto = (index) => {
+  const handleSetMainPhoto = async (index) => {
     if (index === 0) return;
 
-    const newPhotos = [...profile.photos];
-    const [removed] = newPhotos.splice(index, 1);
-    newPhotos.unshift(removed);
-    setProfile({ ...profile, photos: newPhotos });
+    try {
+      const newPhotos = [...profile.photos];
+      const [removed] = newPhotos.splice(index, 1);
+      newPhotos.unshift(removed);
+
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/auth/profile`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profilePics: newPhotos }),
+        }
+      );
+
+      if (!res.ok) throw new Error("Update failed");
+      setProfile({ ...profile, photos: newPhotos });
+      updateUser({ ...user, profilePics: newPhotos });
+    } catch (error) {
+      console.error("Update error:", error);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/profile`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: profile.name,
+            age: parseInt(profile.age),
+            gender: profile.gender.toUpperCase(),
+            description: profile.description,
+            interests: profile.interests,
+          }),
+        }
+      );
+
+      if (!res.ok) throw new Error("Save failed");
+      setIsEditProfileOpen(false);
+      window.location.reload();
+    } catch (error) {
+      console.error("Save error:", error);
+    }
+  };
+
+  const handleSaveLookingFor = () => {
+    localStorage.setItem("lookingFor", JSON.stringify(lookingFor));
+    setIsEditLookingForOpen(false);
   };
 
   return (
-    <div className="w-full h-full overflow-auto">
+    <>
       <LenisScroll>
-        <section className="flex flex-col gap-3 min-h-full p-4">
-          <div className="bg-white ring-1 ring-gray-200 rounded-lg shadow-sm flex items-center">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-lg w-full">
-              <div className="flex-shrink-0 relative">
-                <Image
-                  src={profile.photos[0]}
-                  alt="Profile"
-                  width={100}
-                  height={100}
-                  className="w-16 h-16 sm:w-18 sm:h-18 object-cover object-center rounded-3xl ring-2 ring-pink-500"
-                />
-                {profile.isOnline && (
-                  <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white"></div>
+        <section className="flex flex-col gap-4 min-h-full divide-y divide-white/10 mb-10">
+          <div className="flex items-center p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full">
+              <div className="flex-shrink-0 relative group">
+                {profile?.photos?.length > 0 ? (
+                  <Image
+                    src={profile.photos[0]}
+                    alt="Profile"
+                    width={100}
+                    height={100}
+                    className="w-20 h-20 sm:w-24 sm:h-24 object-cover object-center rounded-2xl ring-2 ring-violet-500"
+                  />
+                ) : (
+                  <div className="w-18 h-18 rounded-3xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center text-white text-2xl font-medium">
+                    {getAvatarFallback()}
+                  </div>
                 )}
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-gray-900"></div>
                 <button
-                  className="absolute -bottom-1 -right-1 bg-white rounded-full p-1 shadow-sm cursor-pointer"
+                  className="absolute -bottom-2 -right-2 rounded-full p-1.5 bg-gray-800 hover:bg-gray-700 transition-colors cursor-pointer shadow-md"
                   onClick={() => setIsAddPhotoOpen(true)}
                 >
-                  <Edit2Icon
-                    size={16}
-                    strokeWidth={1.5}
-                    className="text-blue-500"
-                  />
+                  <Edit2Icon size={16} className="text-violet-400" />
                 </button>
               </div>
               <div className="flex-grow w-full">
                 <div className="flex justify-between items-center">
-                  <h1 className="text-lg font-medium">{profile.name}</h1>
+                  <h1 className="font-medium text-base">{profile.name}</h1>
                   <button
-                    className="text-sm text-blue-500 hover:text-blue-600 cursor-pointer"
+                    className="text-sm text-violet-400 hover:text-violet-300 cursor-pointer flex items-center gap-1 px-3 py-1 rounded-lg transition-colors"
                     onClick={() => setIsEditProfileOpen(true)}
                   >
                     Edit Profile
+                    <ChevronDown size={14} />
                   </button>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                <div className="flex items-center gap-2 text-gray-400 my-1">
                   <span>{profile.age}</span>
                   <span>•</span>
                   <span>{profile.gender}</span>
                 </div>
-                <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                <p className="line-clamp-2 text-gray-300">
                   {profile.description}
                 </p>
               </div>
             </div>
           </div>
-          <div className="bg-white ring-1 ring-gray-200 rounded-lg shadow-sm flex flex-col justify-center p-4">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-sm font-medium text-gray-800">About Me</h2>
+          <div className="flex flex-col px-6 pb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-base font-medium">About Me</h2>
               <button
-                className="text-sm text-blue-500 hover:text-blue-600 cursor-pointer"
+                className="text-sm text-violet-400 hover:text-violet-300 cursor-pointer"
                 onClick={() => setIsEditProfileOpen(true)}
               >
                 Edit
               </button>
             </div>
-            <p className="text-sm text-gray-600">{profile.description}</p>
+            <p className="text-gray-300 mb-4">{profile.description}</p>
+            <div className="flex items-start">
+              <span className="w-24 flex-shrink-0 text-gray-400">
+                Interests:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {profile.interests.length > 0 ? (
+                  profile.interests.map((interest, index) => (
+                    <span
+                      key={index}
+                      className="px-3 py-1 bg-violet-900/50 text-violet-300 rounded-full text-sm hover:bg-violet-800/50 transition-colors"
+                    >
+                      {interest}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-gray-500">No interests added</span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="bg-white ring-1 ring-gray-200 rounded-lg shadow-sm flex flex-col justify-center p-4">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-sm font-medium text-gray-800">Looking For</h2>
+
+          <div className="flex flex-col px-6 pb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-base font-medium">Looking For</h2>
               <button
-                className="text-sm text-blue-500 hover:text-blue-600 cursor-pointer"
+                className="text-sm text-violet-400 hover:text-violet-300 cursor-pointer"
                 onClick={() => setIsEditLookingForOpen(true)}
               >
                 Edit
               </button>
             </div>
-            <div className="space-y-2">
-              <div className="flex items-center text-sm text-gray-600">
-                <span className="w-24">Gender:</span>
-                <span>{profile.lookingFor.genderPreference}</span>
-              </div>
-              <div className="flex items-center text-sm text-gray-600">
-                <span className="w-24">Age Range:</span>
-                <span>
-                  {profile.lookingFor.ageMin} - {profile.lookingFor.ageMax}
+            <div className="space-y-3">
+              <div className="flex items-center">
+                <span className="w-44 text-gray-400">Gender:</span>
+                <span className="text-gray-300">
+                  {lookingFor.genderPreference}
                 </span>
               </div>
-              <div className="flex items-start text-sm text-gray-600">
-                <span className="w-24 flex-shrink-0">Interests:</span>
-                <div className="flex flex-wrap gap-1">
-                  {profile.lookingFor.interests.map((interest, index) => (
-                    <span
-                      key={index}
-                      className="px-2 py-1 bg-blue-50 text-blue-600 rounded-full text-xs"
-                    >
-                      {interest}
-                    </span>
-                  ))}
-                </div>
+              <div className="flex items-center">
+                <span className="w-44 text-gray-400">Age Range:</span>
+                <span className="text-gray-300">
+                  {lookingFor.ageMin} - {lookingFor.ageMax}
+                </span>
               </div>
             </div>
           </div>
-          <div className="bg-white ring-1 ring-gray-200 rounded-lg shadow-sm flex flex-col justify-center p-4">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-sm font-medium text-gray-800">Gallery</h2>
+
+          <div className="flex flex-col px-6 pb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-base font-medium">Gallery</h2>
               <button
-                className="text-sm text-blue-500 hover:underline cursor-pointer"
+                className="text-sm text-violet-400 hover:text-violet-300 cursor-pointer"
                 onClick={() => setIsAddPhotoOpen(true)}
               >
                 Manage Photos
               </button>
             </div>
-            <div className="grid grid-cols-12 gap-3 overflow-auto w-full">
-              {profile.photos.slice(1).map((photo, index) => (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 overflow-auto w-full">
+              {profile.photos.slice(0, 5).map((photo, index) => (
                 <div
                   key={index}
-                  className="col-span-3 relative group h-42 w-full rounded-lg pattern border-2 border-dashed border-gray-200"
+                  className="relative group aspect-square w-full rounded-xl overflow-hidden border border-white/10 hover:border-violet-500 transition-colors"
                 >
                   <Image
                     src={photo}
                     alt={`Gallery photo ${index + 1}`}
-                    width={100}
-                    height={100}
-                    className="w-full h-full object-contain object-center rounded-lg"
+                    fill
+                    className="object-cover object-center"
                   />
-                  <button
-                    className="absolute top-0 right-0 bg-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-300 cursor-pointer"
-                    onClick={() => {
-                      const newPhotos = [...profile.photos];
-                      newPhotos.splice(index + 1, 1);
-                      setProfile({ ...profile, photos: newPhotos });
-                    }}
-                  >
-                    <XIcon size={18} className="text-blue-500" />
-                  </button>
+                  {index !== 0 && (
+                    <button
+                      className="absolute top-2 right-2 rounded-full p-1 bg-violet-900/80 hover:bg-gray-900 transition-all duration-300 cursor-pointer"
+                      onClick={() => {
+                        const newPhotos = [...profile.photos];
+                        newPhotos.splice(index, 1);
+                        setProfile({ ...profile, photos: newPhotos });
+                      }}
+                    >
+                      <XIcon size={16} className="text-gray-300" />
+                    </button>
+                  )}
+                  {index === 0 ? (
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs py-1 text-center">
+                      Main Photo
+                    </div>
+                  ) : (
+                    <button
+                      className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs py-1 hover:bg-black/70 transition-colors w-full text-center"
+                      onClick={() => handleSetMainPhoto(index)}
+                    >
+                      Set as Main
+                    </button>
+                  )}
                 </div>
               ))}
               {profile.photos.length < 6 && (
                 <button
-                  className="col-span-3 flex items-center justify-center w-full h-42 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                  className="aspect-square flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed border-white/10 bg-gray-700/20 hover:bg-gray-800 transition-colors"
                   onClick={() => setIsAddPhotoOpen(true)}
                 >
                   <CirclePlusIcon
-                    size={20}
+                    size={24}
                     strokeWidth={1.5}
-                    className="text-gray-400"
+                    className="text-gray-500 mb-1"
                   />
+                  <span className="text-xs text-gray-400">Add Photo</span>
                 </button>
               )}
             </div>
           </div>
         </section>
       </LenisScroll>
+
       <Transition appear show={isEditProfileOpen} as={Fragment}>
         <Dialog
           as="div"
@@ -222,7 +341,7 @@ export default function Profile(params) {
             leaveFrom="opacity-100"
             leaveTo="opacity-0"
           >
-            <div className="fixed inset-0 bg-black/20" />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
           </Transition.Child>
 
           <div className="fixed inset-0 overflow-y-auto">
@@ -236,22 +355,22 @@ export default function Profile(params) {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 text-left align-middle shadow-xl transition-all">
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-background p-6 text-left align-middle shadow-xl transition-all border border-white/10">
                   <Dialog.Title
                     as="h3"
-                    className="text-lg font-medium leading-6 text-gray-900"
+                    className="text-lg font-medium leading-6 text-gray-100"
                   >
                     Edit Profile
                   </Dialog.Title>
 
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label className="block text-sm font-medium text-gray-400 mb-1">
                         Name
                       </label>
                       <input
                         type="text"
-                        className="mt-1 py-2 px-0 block w-full border-gray-300 border-b focus:border-blue-500 focus:ring-blue-500 sm:text-sm outline-0"
+                        className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
                         value={profile.name}
                         onChange={(e) =>
                           setProfile({ ...profile, name: e.target.value })
@@ -261,46 +380,47 @@ export default function Profile(params) {
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
                           Age
                         </label>
                         <input
                           type="number"
-                          className="mt-1 py-2 px-0 block w-full border-gray-300 border-b focus:border-blue-500 focus:ring-blue-500 sm:text-sm outline-0"
+                          className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
                           value={profile.age}
                           onChange={(e) =>
                             setProfile({
                               ...profile,
-                              age: parseInt(e.target.value),
+                              age: e.target.value,
                             })
                           }
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
                           Gender
                         </label>
                         <select
-                          className="mt-1 py-2 px-0 block w-full border-gray-300 border-b focus:border-blue-500 focus:ring-blue-500 sm:text-sm outline-0"
+                          className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
                           value={profile.gender}
                           onChange={(e) =>
                             setProfile({ ...profile, gender: e.target.value })
                           }
                         >
-                          <option>Female</option>
-                          <option>Male</option>
+                          <option className="bg-gray-800">Male</option>
+                          <option className="bg-gray-800">Female</option>
+                          <option className="bg-gray-800">Other</option>
                         </select>
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label className="block text-sm font-medium text-gray-400 mb-1">
                         About Me
                       </label>
                       <textarea
                         rows={3}
-                        className="mt-1 py-2 px-0 block w-full border-gray-300 border-b focus:border-blue-500 focus:ring-blue-500 sm:text-sm outline-0"
+                        className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
                         value={profile.description}
                         onChange={(e) =>
                           setProfile({
@@ -312,30 +432,25 @@ export default function Profile(params) {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label className="block text-sm font-medium text-gray-400 mb-1">
                         Interests
                       </label>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {profile.lookingFor.interests.map((interest, index) => (
+                        {profile.interests.map((interest, index) => (
                           <span
                             key={index}
-                            className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                            className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-violet-900/50 text-violet-300"
                           >
                             {interest}
                             <button
                               type="button"
-                              className="flex-shrink-0 ml-1 h-4 w-4 rounded-full inline-flex items-center justify-center text-blue-400 hover:bg-blue-200 hover:text-blue-500 focus:outline-none"
+                              className="ml-1 h-4 w-4 rounded-full inline-flex items-center justify-center text-violet-400 hover:bg-violet-800/50 focus:outline-none"
                               onClick={() => {
-                                const newInterests = [
-                                  ...profile.lookingFor.interests,
-                                ];
-                                newInterests.splice(index, 1);
                                 setProfile({
                                   ...profile,
-                                  lookingFor: {
-                                    ...profile.lookingFor,
-                                    interests: newInterests,
-                                  },
+                                  interests: profile.interests.filter(
+                                    (_, i) => i !== index
+                                  ),
                                 });
                               }}
                             >
@@ -346,19 +461,13 @@ export default function Profile(params) {
                         ))}
                         <button
                           type="button"
-                          className="inline-flex items-center px-2 py-1 border border-gray-300 rounded-full text-xs font-medium text-gray-700 bg-white hover:bg-gray-50"
+                          className="inline-flex items-center px-3 py-1 border border-white/10 rounded-full text-xs font-medium text-gray-400 hover:bg-gray-700"
                           onClick={() => {
                             const newInterest = prompt("Add new interest");
                             if (newInterest) {
                               setProfile({
                                 ...profile,
-                                lookingFor: {
-                                  ...profile.lookingFor,
-                                  interests: [
-                                    ...profile.lookingFor.interests,
-                                    newInterest,
-                                  ],
-                                },
+                                interests: [...profile.interests, newInterest],
                               });
                             }
                           }}
@@ -373,15 +482,15 @@ export default function Profile(params) {
                   <div className="mt-6 flex justify-end space-x-3">
                     <button
                       type="button"
-                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none"
+                      className="inline-flex justify-center rounded-lg border border-white/10 bg-transparent px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 focus:outline-none"
                       onClick={() => setIsEditProfileOpen(false)}
                     >
                       Cancel
                     </button>
                     <button
                       type="button"
-                      className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none"
-                      onClick={() => setIsEditProfileOpen(false)}
+                      className="inline-flex justify-center rounded-lg border border-transparent bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 focus:outline-none"
+                      onClick={handleSaveProfile}
                     >
                       Save Changes
                     </button>
@@ -392,6 +501,7 @@ export default function Profile(params) {
           </div>
         </Dialog>
       </Transition>
+
       <Transition appear show={isEditLookingForOpen} as={Fragment}>
         <Dialog
           as="div"
@@ -407,7 +517,7 @@ export default function Profile(params) {
             leaveFrom="opacity-100"
             leaveTo="opacity-0"
           >
-            <div className="fixed inset-0 bg-black/20" />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
           </Transition.Child>
 
           <div className="fixed inset-0 overflow-y-auto">
@@ -421,73 +531,65 @@ export default function Profile(params) {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 text-left align-middle shadow-xl transition-all">
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-background p-6 text-left align-middle shadow-xl transition-all border border-white/10">
                   <Dialog.Title
                     as="h3"
-                    className="text-lg font-medium leading-6 text-gray-900"
+                    className="text-lg font-medium leading-6 text-gray-100"
                   >
                     Looking For Preferences
                   </Dialog.Title>
 
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label className="block text-sm font-medium text-gray-400 mb-1">
                         Gender Preference
                       </label>
                       <select
-                        className="mt-1 py-2 px-0 block w-full border-gray-300 border-b focus:border-blue-500 focus:ring-blue-500 sm:text-sm outline-0"
-                        value={profile.lookingFor.genderPreference}
+                        className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                        value={lookingFor.genderPreference}
                         onChange={(e) =>
-                          setProfile({
-                            ...profile,
-                            lookingFor: {
-                              ...profile.lookingFor,
-                              genderPreference: e.target.value,
-                            },
+                          setLookingFor({
+                            ...lookingFor,
+                            genderPreference: e.target.value,
                           })
                         }
                       >
-                        <option>Female</option>
-                        <option>Male</option>
+                        <option className="bg-gray-800">Male</option>
+                        <option className="bg-gray-800">Female</option>
+                        <option className="bg-gray-800">Other</option>
                       </select>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
                           Min Age
                         </label>
                         <input
                           type="number"
-                          className="mt-1 py-2 px-0 block w-full border-gray-300 border-b focus:border-blue-500 focus:ring-blue-500 sm:text-sm outline-0"
-                          value={profile.lookingFor.ageMin}
+                          className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                          value={lookingFor.ageMin}
                           onChange={(e) =>
-                            setProfile({
-                              ...profile,
-                              lookingFor: {
-                                ...profile.lookingFor,
-                                ageMin: parseInt(e.target.value),
-                              },
+                            setLookingFor({
+                              ...lookingFor,
+                              ageMin: parseInt(e.target.value),
                             })
                           }
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
                           Max Age
                         </label>
                         <input
                           type="number"
-                          className="mt-1 py-2 px-0 block w-full border-gray-300 border-b focus:border-blue-500 focus:ring-blue-500 sm:text-sm outline-0"
-                          value={profile.lookingFor.ageMax}
+                          className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                          value={lookingFor.ageMax}
                           onChange={(e) =>
-                            setProfile({
-                              ...profile,
-                              lookingFor: {
-                                ...profile.lookingFor,
-                                ageMax: parseInt(e.target.value),
-                              },
+                            setLookingFor({
+                              ...lookingFor,
+                              ageMax: parseInt(e.target.value),
                             })
                           }
                         />
@@ -498,15 +600,15 @@ export default function Profile(params) {
                   <div className="mt-6 flex justify-end space-x-3">
                     <button
                       type="button"
-                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none"
+                      className="inline-flex justify-center rounded-lg border border-white/10 bg-transparent px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 focus:outline-none"
                       onClick={() => setIsEditLookingForOpen(false)}
                     >
                       Cancel
                     </button>
                     <button
                       type="button"
-                      className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none"
-                      onClick={() => setIsEditLookingForOpen(false)}
+                      className="inline-flex justify-center rounded-lg border border-transparent bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 focus:outline-none"
+                      onClick={handleSaveLookingFor}
                     >
                       Save Changes
                     </button>
@@ -517,6 +619,7 @@ export default function Profile(params) {
           </div>
         </Dialog>
       </Transition>
+
       <Transition appear show={isAddPhotoOpen} as={Fragment}>
         <Dialog
           as="div"
@@ -532,7 +635,7 @@ export default function Profile(params) {
             leaveFrom="opacity-100"
             leaveTo="opacity-0"
           >
-            <div className="fixed inset-0 bg-black/20" />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
           </Transition.Child>
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4 text-center">
@@ -545,52 +648,51 @@ export default function Profile(params) {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 text-left align-middle shadow-xl transition-all">
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-background p-6 text-left align-middle shadow-xl transition-all border border-white/10">
                   <Dialog.Title
                     as="h3"
-                    className="text-lg font-medium leading-6 text-gray-900"
+                    className="text-lg font-medium leading-6 text-gray-100"
                   >
                     Manage Photos
                   </Dialog.Title>
 
                   <div className="mt-4">
-                    <p className="text-sm text-gray-500">
-                      Upload up to 4 photos for your profile. First photo will
+                    <p className="text-sm text-gray-400 mb-4">
+                      Upload up to 6 photos for your profile. First photo will
                       be used as your main profile picture.
                     </p>
 
-                    <div className="mt-4 grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-3 gap-3">
                       {profile.photos.map((photo, index) => (
                         <div
                           key={index}
-                          className="relative group rounded-lg overflow-hidden border border-gray-200"
+                          className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group"
                         >
                           <Image
                             src={photo}
                             alt={`Gallery photo ${index + 1}`}
-                            width={120}
-                            height={120}
-                            className="w-full h-24 object-cover"
+                            fill
+                            className="object-cover"
                           />
-                          <div className="absolute top-1 right-1">
+                          <div className="absolute top-2 right-2">
                             <button
-                              className="bg-white rounded-full p-1 shadow-sm"
+                              className="rounded-full p-1 bg-gray-900/80 hover:bg-gray-900 shadow-sm"
                               onClick={() => {
                                 const newPhotos = [...profile.photos];
                                 newPhotos.splice(index, 1);
                                 setProfile({ ...profile, photos: newPhotos });
                               }}
                             >
-                              <XIcon size={14} className="text-gray-600" />
+                              <XIcon size={14} className="text-gray-300" />
                             </button>
                           </div>
                           {index === 0 ? (
-                            <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs py-1 text-center">
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs py-1 text-center">
                               Main Photo
                             </div>
                           ) : (
                             <button
-                              className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs py-1 hover:bg-opacity-70 transition-colors"
+                              className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs py-1 hover:bg-black/70 transition-colors w-full text-center"
                               onClick={() => handleSetMainPhoto(index)}
                             >
                               Set as Main
@@ -598,16 +700,16 @@ export default function Profile(params) {
                           )}
                         </div>
                       ))}
-                      {profile.photos.length < 4 && (
+                      {profile.photos.length < 6 && (
                         <div
-                          className="flex flex-col items-center justify-center h-24 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+                          className="flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/10 bg-white/5 hover:bg-gray-700 transition-colors cursor-pointer"
                           onClick={() => fileInputRef.current.click()}
                         >
                           <CameraIcon
                             size={20}
-                            className="text-gray-400 mb-1"
+                            className="text-gray-300 mb-1"
                           />
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-300">
                             Add Photo
                           </span>
                         </div>
@@ -626,17 +728,17 @@ export default function Profile(params) {
                   <div className="mt-6 flex justify-end space-x-3">
                     <button
                       type="button"
-                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none"
+                      className="inline-flex justify-center rounded-lg border border-white/10 bg-transparent px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 focus:outline-none"
                       onClick={() => setIsAddPhotoOpen(false)}
                     >
                       Cancel
                     </button>
                     <button
                       type="button"
-                      className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none"
+                      className="inline-flex justify-center rounded-lg border border-transparent bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 focus:outline-none"
                       onClick={() => setIsAddPhotoOpen(false)}
                     >
-                      Save Changes
+                      Done
                     </button>
                   </div>
                 </Dialog.Panel>
@@ -645,6 +747,6 @@ export default function Profile(params) {
           </div>
         </Dialog>
       </Transition>
-    </div>
+    </>
   );
 }

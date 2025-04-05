@@ -8,86 +8,74 @@ datasource db {
 }
 
 model User {
-  id               String       @id @default(auto()) @map("_id") @db.ObjectId
-  username         String       @unique
-  age              Int
-  gender           Gender
-  description      String?
-  interests        String[]
-  profilePics      String[]
-  friendships      Friendship[] @relation("UserFriendships")
-  groupMembers     GroupUser[]
-  createdAt        DateTime     @default(now())
-  lastActive       DateTime     @updatedAt
-  sentMessages     Message[]    @relation("SentMessages")
-  receivedMessages Message[]    @relation("ReceivedMessages")
-  Friendship       Friendship[]
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  fId   String   @unique
+  name         String
+  age          Int      @default(18)
+  gender       Gender   @default(OTHER)
+  description  String?
+  interests    String[] @default([])
+  profilePics  Json     @default("[]")
+  allowImages  Boolean  @default(false)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  conversationsStarted Conversation[] @relation("User1Conversations")
+  conversationsJoined  Conversation[] @relation("User2Conversations")
+
+  messages Message[] @relation("UserMessages")
+
+  blocksInitiated Block[] @relation("Blocker")
+  blocksReceived  Block[] @relation("Blocked")
+}
+
+model Conversation {
+  id       String           @id @default(auto()) @map("_id") @db.ObjectId
+  user1    User             @relation("User1Conversations", fields: [user1Id], references: [id])
+  user1Id  String           @db.ObjectId
+  user2    User             @relation("User2Conversations", fields: [user2Id], references: [id])
+  user2Id  String           @db.ObjectId
+  type     ConversationType
+  messages Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Message {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String       @db.ObjectId
+  sender         User         @relation("UserMessages", fields: [senderId], references: [id])
+  senderId       String       @db.ObjectId
+  type           MessageType
+  content        String?
+  imageId   String?
+  createdAt      DateTime     @default(now()) @map("createdAt")
+}
+
+model Block {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id])
+  blockerId String   @db.ObjectId
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id])
+  blockedId String   @db.ObjectId
+  createdAt DateTime @default(now())
+}
+
+enum ConversationType {
+  INSTANT
+  FOCUSED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
 }
 
 enum Gender {
   MALE
   FEMALE
   OTHER
-}
-
-model Friendship {
-  id        String       @id @default(auto()) @map("_id") @db.ObjectId
-  user      User         @relation("UserFriendships", fields: [userId], references: [id])
-  userId    String       @db.ObjectId
-  friend    User         @relation(fields: [friendId], references: [id])
-  friendId  String       @db.ObjectId
-  status    FriendStatus @default(PENDING)
-  createdAt DateTime     @default(now())
-
-  @@unique([userId, friendId], name: "unique_friendship")
-  @@index([userId])
-  @@index([friendId])
-}
-
-enum FriendStatus {
-  PENDING
-  ACCEPTED
-  BLOCKED
-}
-
-model Message {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
-  senderId   String   @db.ObjectId
-  receiver   User?    @relation("ReceivedMessages", fields: [receiverId], references: [id])
-  receiverId String?  @db.ObjectId
-  group      Group?   @relation(fields: [groupId], references: [id])
-  groupId    String?  @db.ObjectId
-  content    String
-  createdAt  DateTime @default(now())
-
-  @@index([senderId, receiverId])
-  @@index([groupId])
-}
-
-model Group {
-  id        String      @id @default(auto()) @map("_id") @db.ObjectId
-  name      String
-  members   GroupUser[]
-  messages  Message[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-}
-
-model GroupUser {
-  id       String   @id @default(auto()) @map("_id") @db.ObjectId
-  group    Group    @relation(fields: [groupId], references: [id])
-  groupId  String   @db.ObjectId
-  user     User     @relation(fields: [userId], references: [id])
-  userId   String   @db.ObjectId
-  role     Role     @default(MEMBER)
-  joinedAt DateTime @default(now())
-
-  @@unique([groupId, userId], name: "unique_group_membership")
-}
-
-enum Role {
-  ADMIN
-  MODERATOR
-  MEMBER
 }
