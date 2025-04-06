@@ -29,15 +29,13 @@ export default function Home() {
     gender: "OTHER",
     description: "",
     interests: "",
-    profilePics: [], // will hold objects { url, imageId }
+    profilePics: [],
   });
 
-  // Upload state
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
 
-  // 1) Fetch "me" once we have a user
   const { data, isLoading: isUserLoading } = useQuery({
     queryKey: ["user"],
     queryFn: async () => {
@@ -51,7 +49,6 @@ export default function Home() {
     enabled: !!user,
   });
 
-  // 2) Seed the form when data arrives
   useEffect(() => {
     if (data?.user) {
       const u = data.user;
@@ -66,16 +63,13 @@ export default function Home() {
     }
   }, [data]);
 
-  // 3) File-to-base64 → POST /upload → add to profilePics
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Show local preview immediately
     const localPreview = URL.createObjectURL(file);
     setPreviewUrl(localPreview);
 
-    // Start uploading
     setIsUploading(true);
     setUploadProgress(10);
 
@@ -83,7 +77,6 @@ export default function Home() {
     formData.append("image", file);
 
     try {
-      // Simulate progress
       const progressInterval = setInterval(() => {
         setUploadProgress((prev) => {
           const increment = Math.floor(Math.random() * 15) + 5;
@@ -106,7 +99,6 @@ export default function Home() {
         throw new Error(json?.error || "Upload failed");
       }
 
-      // After successful upload
       setFormData((prev) => ({
         ...prev,
         profilePics: [
@@ -119,7 +111,6 @@ export default function Home() {
         description: "Image uploaded successfully",
       });
 
-      // Clean up preview URL
       URL.revokeObjectURL(localPreview);
       setPreviewUrl(null);
     } catch (error) {
@@ -139,7 +130,6 @@ export default function Home() {
     }));
   };
 
-  // 4) Save mutation
   const saveMutation = useMutation({
     mutationFn: async (newData) => {
       const res = await fetch(
@@ -182,22 +172,13 @@ export default function Home() {
 
   const handleSave = () => saveMutation.mutate(formData);
 
-  // 5) Anonymous login
   const [loggingIn, setLoggingIn] = useState(false);
   const handleLogin = async () => {
     setLoggingIn(true);
     try {
       await loginAnonymously();
-      toast({
-        title: "Logged in",
-        description: "You have been logged in anonymously.",
-      });
     } catch (err) {
-      toast({
-        title: "Login failed",
-        description: err.message || "An error occurred during login",
-        variant: "destructive",
-      });
+      console.log(err);
     } finally {
       setLoggingIn(false);
     }
@@ -312,13 +293,11 @@ export default function Home() {
                 </p>
               </div>
 
-              {/* Profile Pictures Section */}
               <div className="space-y-3">
                 <label className="text-sm font-medium block">
                   Profile Pictures
                 </label>
 
-                {/* Upload button */}
                 <div
                   className={`border border-dashed rounded-lg p-6 text-center transition-all ${
                     isUploading ? "bg-blue-50 border-blue-300" : ""
@@ -368,7 +347,6 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Preview */}
                 {formData.profilePics.length > 0 && (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">
                     {formData.profilePics.map((pic) => (

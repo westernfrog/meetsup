@@ -4,6 +4,7 @@ import { AuthProvider } from "@/contexts/AuthProvider";
 import Provider from "@/contexts/Provider";
 import { ThemeProvider } from "@/contexts/ThemeProvider";
 import { Toaster } from "sonner";
+import Header from "@/components/Header";
 
 const inter = Inter({
   variable: "--font-inter-sans",
@@ -26,7 +27,10 @@ export default function RootLayout({ children }) {
           disableTransitionOnChange
         >
           <Provider>
-            <AuthProvider>{children}</AuthProvider>
+            <AuthProvider>
+              <Header />
+              {children}
+            </AuthProvider>
           </Provider>
           <Toaster />
         </ThemeProvider>
