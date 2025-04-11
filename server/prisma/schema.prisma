@@ -9,7 +9,7 @@ datasource db {
 
 model User {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  fId   String   @unique
+  fId          String   @unique
   name         String
   age          Int      @default(18)
   gender       Gender   @default(OTHER)
@@ -41,6 +41,9 @@ model Conversation {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([user1Id])
+  @@index([user2Id])
 }
 
 model Message {
@@ -51,8 +54,10 @@ model Message {
   senderId       String       @db.ObjectId
   type           MessageType
   content        String?
-  imageId   String?
+  imageId        String?
   createdAt      DateTime     @default(now()) @map("createdAt")
+
+  @@index([conversationId, createdAt])
 }
 
 model Block {

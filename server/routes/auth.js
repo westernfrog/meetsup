@@ -6,42 +6,10 @@ const {
   adjectives,
   animals,
 } = require("unique-names-generator");
+const verifyFirebaseSession = require("../utils/verifyFirebaseSession");
+const verifyFIdToken = require("../utils/verifyFIdToken");
 
 const router = express.Router();
-
-const SESSION_COOKIE_NAME = "session";
-
-const verifyFirebaseSession = async (req, res, next) => {
-  const sessionCookie = req.cookies[SESSION_COOKIE_NAME];
-
-  if (!sessionCookie) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    const decoded = await admin.auth().verifySessionCookie(sessionCookie, true);
-    req.firebaseUID = decoded.uid;
-    next();
-  } catch (error) {
-    res.clearCookie(SESSION_COOKIE_NAME);
-    return res.status(403).json({ error: "Invalid or expired session" });
-  }
-};
-
-const verifyFIdToken = async (req, res, next) => {
-  const token = req.headers.authorization?.split("Bearer ")[1];
-  if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.firebaseUID = decoded.uid;
-    next();
-  } catch (error) {
-    return res.status(403).json({ error: "Invalid token" });
-  }
-};
 
 const userSelect = {
   id: true,
@@ -88,7 +56,7 @@ router.post("/auth/anonymous", verifyFIdToken, async (req, res) => {
       expiresIn,
     });
 
-    res.cookie(SESSION_COOKIE_NAME, sessionCookie, {
+    res.cookie(process.env.SESSION_COOKIE_NAME, sessionCookie, {
       maxAge: expiresIn,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -123,14 +91,14 @@ router.get("/auth/me", verifyFirebaseSession, async (req, res) => {
 
 router.post("/auth/logout", async (req, res) => {
   try {
-    const sessionCookie = req.cookies[SESSION_COOKIE_NAME];
+    const sessionCookie = req.cookies[process.env.SESSION_COOKIE_NAME];
     const decodedClaims = await admin.auth().verifySessionCookie(sessionCookie);
     await admin.auth().revokeRefreshTokens(decodedClaims.sub);
   } catch (err) {
     // It's okay even if token is invalid
   }
 
-  res.clearCookie(SESSION_COOKIE_NAME, {
+  res.clearCookie(process.env.SESSION_COOKIE_NAME, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

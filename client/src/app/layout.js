@@ -1,14 +1,22 @@
-import { Inter } from "next/font/google";
+import { Barrio, Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthProvider";
 import Provider from "@/contexts/Provider";
 import { ThemeProvider } from "@/contexts/ThemeProvider";
 import { Toaster } from "sonner";
-import Header from "@/components/Header";
+import Header from "@/components/module/Header";
+import Messages from "@/components/module/Messages";
 
 const inter = Inter({
   variable: "--font-inter-sans",
   subsets: ["latin"],
+});
+
+const barrio = Barrio({
+  variable: "--font-barrio-sans",
+  subsets: ["latin"],
+  weight: ["400"],
+  display: "swap",
 });
 
 export const metadata = {
@@ -18,18 +26,30 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className={`${inter.variable} antialiased bg-black/90`}>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${inter.variable} ${barrio.variable} antialiased`}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
+          defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
           <Provider>
             <AuthProvider>
-              <Header />
-              {children}
+              <div className="fixed inset-0">
+                <div className="grid grid-cols-16 grid-rows-22 h-full">
+                  <div className="col-span-4 row-span-22 border">
+                    <Messages />
+                  </div>
+                  <div className="col-span-12 row-span-2 border flex items-center px-6">
+                    <Header />
+                  </div>
+                  <div className="col-span-12 row-span-20 border flex items-center p-6">
+                    {children}
+                  </div>
+                </div>
+                {children}
+              </div>
             </AuthProvider>
           </Provider>
           <Toaster />
