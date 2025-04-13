@@ -15,7 +15,8 @@ import {
 import { useSocket } from "@/lib/socket";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send } from "lucide-react";
+import { Send, WifiOff, Wifi } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 export default function ChatRoom() {
   const { roomId } = useParams();
@@ -28,6 +29,10 @@ export default function ChatRoom() {
   const [typingUser, setTypingUser] = useState(null);
   const typingTimeoutRef = useRef(null);
   const messagesEndRef = useRef(null);
+
+  // Online status state
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const [userStatus, setUserStatus] = useState("online");
 
   // Fetch conversation data
   useEffect(() => {
@@ -47,6 +52,21 @@ export default function ChatRoom() {
         setConversation(data.conversation);
         setMessages(data.conversation.messages || []);
         socket.emit("join", roomId);
+
+        // Check online status of both users
+        if (data.conversation.user1?.id && data.conversation.user2?.id) {
+          socket.emit(
+            "getOnlineStatus",
+            [data.conversation.user1.id, data.conversation.user2.id],
+            (statusMap) => {
+              const onlineSet = new Set();
+              Object.entries(statusMap).forEach(([userId, isOnline]) => {
+                if (isOnline) onlineSet.add(userId);
+              });
+              setOnlineUsers(onlineSet);
+            }
+          );
+        }
       } catch (err) {
         setError("Could not load the conversation.");
       } finally {
@@ -102,6 +122,50 @@ export default function ChatRoom() {
       }
     };
 
+    const onUserOnline = (user) => {
+      setOnlineUsers((prev) => new Set(prev).add(user.userId));
+
+      // Add system message for user coming online
+      if (
+        conversation?.user1?.id === user.userId ||
+        conversation?.user2?.id === user.userId
+      ) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `system-online-${Date.now()}`,
+            content: `${user.username} is now online`,
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+    };
+
+    const onUserOffline = (user) => {
+      setOnlineUsers((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(user.userId);
+        return newSet;
+      });
+
+      // Add system message for user going offline
+      if (
+        conversation?.user1?.id === user.userId ||
+        conversation?.user2?.id === user.userId
+      ) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `system-offline-${Date.now()}`,
+            content: `${user.username} went offline`,
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+    };
+
     const onError = (msg) => {
       setError(msg);
     };
@@ -111,6 +175,8 @@ export default function ChatRoom() {
     socket.on("user:typing", onUserTyping);
     socket.on("user:stoppedTyping", onUserStoppedTyping);
     socket.on("partnerDisconnected", onPartnerDisconnected);
+    socket.on("user:online", onUserOnline);
+    socket.on("user:offline", onUserOffline);
     socket.on("error", onError);
 
     return () => {
@@ -118,9 +184,20 @@ export default function ChatRoom() {
       socket.off("user:typing", onUserTyping);
       socket.off("user:stoppedTyping", onUserStoppedTyping);
       socket.off("partnerDisconnected", onPartnerDisconnected);
+      socket.off("user:online", onUserOnline);
+      socket.off("user:offline", onUserOffline);
       socket.off("error", onError);
     };
-  }, [isReady, roomId, socket, typingUser]);
+  }, [isReady, roomId, socket, typingUser, conversation]);
+
+  // Toggle current user's online status
+  const toggleOnlineStatus = useCallback(() => {
+    if (!socket || !isReady) return;
+
+    const newStatus = userStatus === "online" ? "offline" : "online";
+    socket.emit("user:setStatus", newStatus);
+    setUserStatus(newStatus);
+  }, [socket, isReady, userStatus]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -167,23 +244,37 @@ export default function ChatRoom() {
     socket.emit("typing:stop");
   }, [isReady, roomId, socket]);
 
-  const handleInputChange = useCallback((e) => {
-    setNewMessage(e.target.value);
+  const handleInputChange = useCallback(
+    (e) => {
+      setNewMessage(e.target.value);
 
-    // Trigger typing event if content exists
-    if (e.target.value.trim()) {
-      handleTyping();
-    } else {
-      handleStopTyping();
-    }
-  }, [handleTyping, handleStopTyping]);
+      // Trigger typing event if content exists
+      if (e.target.value.trim()) {
+        handleTyping();
+      } else {
+        handleStopTyping();
+      }
+    },
+    [handleTyping, handleStopTyping]
+  );
 
-  const handleKeyDown = useCallback((e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }, [handleSend]);
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend]
+  );
+
+  // Check if a user is online
+  const isUserOnline = useCallback(
+    (userId) => {
+      return onlineUsers.has(userId);
+    },
+    [onlineUsers]
+  );
 
   if (error) {
     return (
@@ -215,9 +306,47 @@ export default function ChatRoom() {
   return (
     <Card className="max-w-2xl mx-auto mt-8 dark">
       <CardHeader className="pb-3">
-        <CardTitle className="text-center">
-          {conversation?.user1?.name} & {conversation?.user2?.name}
-        </CardTitle>
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-center flex-1">
+            {conversation?.user1?.name} & {conversation?.user2?.name}
+          </CardTitle>
+          <Button
+            variant={userStatus === "online" ? "default" : "outline"}
+            size="sm"
+            className="flex items-center gap-2"
+            onClick={toggleOnlineStatus}
+          >
+            {userStatus === "online" ? (
+              <Wifi className="h-4 w-4" />
+            ) : (
+              <WifiOff className="h-4 w-4" />
+            )}
+            {userStatus === "online" ? "Online" : "Offline"}
+          </Button>
+        </div>
+
+        <div className="flex justify-center gap-6 mt-2">
+          <div className="flex items-center gap-2">
+            <span>{conversation?.user1?.name}:</span>
+            <Badge
+              variant={
+                isUserOnline(conversation?.user1?.id) ? "success" : "secondary"
+              }
+            >
+              {isUserOnline(conversation?.user1?.id) ? "Online" : "Offline"}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <span>{conversation?.user2?.name}:</span>
+            <Badge
+              variant={
+                isUserOnline(conversation?.user2?.id) ? "success" : "secondary"
+              }
+            >
+              {isUserOnline(conversation?.user2?.id) ? "Online" : "Offline"}
+            </Badge>
+          </div>
+        </div>
       </CardHeader>
 
       <CardContent className="p-0">
@@ -242,7 +371,7 @@ export default function ChatRoom() {
 
               return (
                 <div key={msg.id} className="flex items-start gap-3">
-                  <Avatar className="h-8 w-8">
+                  <Avatar className="h-8 w-8 relative">
                     {sender.avatar ? (
                       <AvatarImage src={sender.avatar} alt={sender.name} />
                     ) : (
@@ -250,9 +379,19 @@ export default function ChatRoom() {
                         {sender.name[0]}
                       </AvatarFallback>
                     )}
+                    <span
+                      className={`absolute bottom-0 right-0 h-2 w-2 rounded-full ${
+                        isUserOnline(sender.id) ? "bg-green-500" : "bg-gray-500"
+                      } ring-1 ring-white`}
+                    />
                   </Avatar>
                   <div className="space-y-1">
-                    <p className="text-sm font-medium">{sender.name}</p>
+                    <p className="text-sm font-medium flex items-center gap-1">
+                      {sender.name}
+                      {isUserOnline(sender.id) && (
+                        <span className="text-xs text-green-500">•</span>
+                      )}
+                    </p>
                     <div className="bg-secondary p-3 rounded-lg text-sm">
                       {msg.content}
                     </div>

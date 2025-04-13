@@ -606,7 +606,7 @@ export default function Header() {
                   </Button>
                   <Button
                     variant="destructive"
-                    onClick={handleDeleteAccount}
+                    onClick={handleLogout}
                     disabled={deleteAccountMutation.isLoading}
                   >
                     {deleteAccountMutation.isLoading ? (

@@ -5,6 +5,7 @@ const prisma = require("./lib/prisma-client");
 const waitingUsers = new Map();
 const activeRooms = new Map();
 const typingUsers = new Map();
+const onlineUsers = new Map(); // Track online users by their user ID
 
 function setupSocket(io) {
   // Authentication middleware
@@ -28,6 +29,15 @@ function setupSocket(io) {
   });
 
   io.on("connection", (socket) => {
+    // Mark user as online when they connect
+    onlineUsers.set(socket.user.id, socket.id);
+
+    // Broadcast user's online status to all connected clients
+    io.emit("user:online", {
+      userId: socket.user.id,
+      username: socket.user.name,
+    });
+
     // Find a chat partner
     socket.on("findPartner", async () => {
       // Add user to waiting pool
@@ -70,7 +80,7 @@ function setupSocket(io) {
           io.to(id1).emit("partnerFound", { roomId, partner: user2 });
           io.to(id2).emit("partnerFound", { roomId, partner: user1 });
         } catch (err) {
-          // Return users to waiting pool if match fails
+          // Return users to waiting pool
           waitingUsers.set(id1, user1);
           waitingUsers.set(id2, user2);
 
@@ -184,6 +194,45 @@ function setupSocket(io) {
       }
     });
 
+    // Allow users to set themselves as "away" or "offline" manually
+    socket.on("user:setStatus", (status) => {
+      if (status === "offline") {
+        // Mark user as offline but don't disconnect
+        if (onlineUsers.has(socket.user.id)) {
+          onlineUsers.delete(socket.user.id);
+
+          // Broadcast status change to all users
+          io.emit("user:offline", {
+            userId: socket.user.id,
+            username: socket.user.name,
+          });
+        }
+      } else if (status === "online") {
+        // Mark user as online
+        onlineUsers.set(socket.user.id, socket.id);
+
+        // Broadcast status change to all users
+        io.emit("user:online", {
+          userId: socket.user.id,
+          username: socket.user.name,
+        });
+      }
+    });
+
+    // Method to get online status of specific users
+    socket.on("getOnlineStatus", (userIds, callback) => {
+      const statusMap = {};
+      userIds.forEach((userId) => {
+        statusMap[userId] = onlineUsers.has(userId);
+      });
+      callback(statusMap);
+    });
+
+    // Method to get all online users
+    socket.on("getAllOnlineUsers", (callback) => {
+      callback(Array.from(onlineUsers.keys()));
+    });
+
     // Handle disconnection
     socket.on("disconnect", () => {
       // Remove from waiting users
@@ -214,6 +263,15 @@ function setupSocket(io) {
 
       // Remove from active rooms
       activeRooms.delete(socket.id);
+
+      // Mark user as offline and notify all users
+      if (onlineUsers.get(socket.user.id) === socket.id) {
+        onlineUsers.delete(socket.user.id);
+        io.emit("user:offline", {
+          userId: socket.user.id,
+          username: socket.user.name,
+        });
+      }
     });
 
     // Allow users to cancel finding a partner

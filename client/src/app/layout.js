@@ -38,13 +38,13 @@ export default function RootLayout({ children }) {
             <AuthProvider>
               <div className="fixed inset-0">
                 <div className="grid grid-cols-16 grid-rows-22 h-full">
-                  <div className="col-span-4 row-span-22 border">
+                  <div className="col-span-4 row-span-22 border-e flex items-center">
                     <Messages />
                   </div>
-                  <div className="col-span-12 row-span-2 border flex items-center px-6">
+                  <div className="col-span-12 row-span-2 flex items-center px-6 border-b">
                     <Header />
                   </div>
-                  <div className="col-span-12 row-span-20 border flex items-center p-6">
+                  <div className="col-span-12 row-span-20 flex items-center p-6">
                     {children}
                   </div>
                 </div>
