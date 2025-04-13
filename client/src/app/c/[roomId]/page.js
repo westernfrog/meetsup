@@ -276,6 +276,8 @@ export default function ChatRoom() {
     [onlineUsers]
   );
 
+  console.log(conversation);
+
   if (error) {
     return (
       <Card className="max-w-2xl mx-auto mt-8">

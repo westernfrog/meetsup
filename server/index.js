@@ -48,6 +48,7 @@ try {
 app.use("/api", require("./routes/auth"));
 app.use("/api", require("./routes/upload"));
 app.use("/api", require("./routes/conversation"));
+app.use("/api", require("./routes/conversations"));
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

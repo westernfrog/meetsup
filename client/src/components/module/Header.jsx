@@ -1,19 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { Badge } from "../ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import ThemeToggle from "./ThemeToggle";
 import {
   CookieIcon,
   HeartHandshakeIcon,
@@ -27,35 +17,16 @@ import {
   MessageSquare,
   ChevronDown,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectItem,
-  SelectContent,
-} from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Header() {
-  const { user, logout, loginAnonymously } = useAuth();
+  const { user, logout, loginAnonymously, loading } = useAuth();
   const queryClient = useQueryClient();
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const formDataInitialized = useRef(false);
 
   // Image upload states
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -105,17 +76,17 @@ export default function Header() {
   // Initial loading state handling
   useEffect(() => {
     if (user !== undefined) {
-      // Only set initializing to false when we have a definitive user state
       const timer = setTimeout(() => {
         setIsInitializing(false);
-      }, 300); // Short delay to ensure stable UI state
+      }, 300);
 
       return () => clearTimeout(timer);
     }
   }, [user]);
 
+  // Only initialize form data once when user data is loaded
   useEffect(() => {
-    if (userData?.user) {
+    if (userData?.user && !formDataInitialized.current) {
       const u = userData.user;
       setFormData({
         name: u.name ?? "",
@@ -125,11 +96,27 @@ export default function Header() {
         interests: Array.isArray(u.interests) ? u.interests.join(", ") : "",
         profilePics: Array.isArray(u.profilePics) ? u.profilePics : [],
       });
+      formDataInitialized.current = true;
     }
   }, [userData]);
 
+  // Reset initialization flag when profile dialog is opened
+  useEffect(() => {
+    if (userData?.user && isProfileDialogOpen) {
+      const u = userData.user;
+      setFormData({
+        name: u.name || "",
+        age: u.age?.toString() || "",
+        gender: u.gender || "OTHER",
+        description: u.description || "",
+        interests: Array.isArray(u.interests) ? u.interests.join(", ") : "",
+        profilePics: Array.isArray(u.profilePics) ? u.profilePics : [],
+      });
+    }
+  }, [userData, isProfileDialogOpen]);
+
   const profilePic = userData?.user?.profilePics?.[0]?.url;
-  const userName = userData?.user?.name || "Guest";
+  const userName = userData?.user?.name;
   const userId = userData?.user?.id || "ID: N/A";
   const userInitial = userName ? userName[0].toUpperCase() : "G";
 
@@ -138,43 +125,11 @@ export default function Header() {
   const handleLogout = async () => {
     try {
       await logout();
-      queryClient.clear(); // Clear all query cache
+      queryClient.clear();
       toast.success("Logged out successfully");
     } catch (error) {
-      toast.error("Logout failed", {
-        description: error.message,
-      });
+      toast.error("Logout failed");
     }
-  };
-
-  const deleteAccountMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/delete-account`,
-        {
-          method: "DELETE",
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("Failed to delete account");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.clear(); // Clear all query cache
-      toast.success("Account deleted successfully");
-      setIsDeleteDialogOpen(false);
-      // Force logout after account deletion
-      logout();
-    },
-    onError: (error) => {
-      toast.error("Failed to delete account", {
-        description: error.message,
-      });
-    },
-  });
-
-  const handleDeleteAccount = () => {
-    deleteAccountMutation.mutate();
   };
 
   const handleChange = (e) => {
@@ -209,34 +164,30 @@ export default function Header() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user"] });
       toast.success("Profile saved successfully");
+      formDataInitialized.current = false;
     },
     onError: (error) => {
-      toast.error("Failed to save profile", {
-        description: error.message,
-      });
+      toast.error("Failed to save profile");
     },
   });
 
   const handleSaveProfile = () => {
     saveMutation.mutate(formData);
+    setIsProfileDialogOpen(false);
   };
 
-  // Handle anonymous login
   const handleAnonymousLogin = async () => {
     setIsLoggingIn(true);
     try {
       await loginAnonymously();
       toast.success("Logged in anonymously");
     } catch (err) {
-      toast.error("Login failed", {
-        description: err.message || "An error occurred during login",
-      });
+      toast.error("Login failed");
     } finally {
       setIsLoggingIn(false);
     }
   };
 
-  // Handle file upload
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -285,16 +236,13 @@ export default function Header() {
       URL.revokeObjectURL(localPreview);
       setPreviewUrl(null);
     } catch (error) {
-      toast.error("Upload failed", {
-        description: error.message,
-      });
+      toast.error("Upload failed");
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
     }
   };
 
-  // Remove profile picture
   const removePic = (imageId) => {
     setFormData((prev) => ({
       ...prev,
@@ -302,367 +250,401 @@ export default function Header() {
     }));
   };
 
-  // Render auth section more carefully with proper loading states
   const renderAuthSection = () => {
-    // Show skeleton during initialization
     if (isInitializing) {
       return (
         <div className="flex items-center gap-4">
-          <Skeleton className="h-8 w-24" /> {/* Button skeleton */}
+          <div className="h-8 w-24 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
         </div>
       );
     }
 
-    // User is logged in, show avatar or loading avatar
     if (user) {
       return (
-        <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-2 rounded-full border border-primary/10 hover:bg-primary/20 px-3 py-1.5 transition-colors duration-300 ease-in-out outline-0 cursor-pointer">
+        <div className="relative group">
+          <button className="flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 px-3 py-1.5 transition-colors">
             {isUserDataLoading ? (
-              <Skeleton className="h-8 w-8 rounded-full" />
+              <div className="h-8 w-8 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
             ) : (
-              <Avatar className="h-8 w-8">
-                <AvatarImage className="" src={profilePic || diceBearUrl} />
-                <AvatarFallback>{userInitial}</AvatarFallback>
-              </Avatar>
+              <div className="h-8 w-8 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center overflow-hidden">
+                {profilePic ? (
+                  <img
+                    src={profilePic}
+                    alt="Profile"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="text-sm font-medium">{userInitial}</span>
+                )}
+              </div>
             )}
             <span className="font-medium text-sm hidden sm:block">
-              {userName}
+              {userName || "User"}
             </span>
-            <ChevronDown size={16} className="text-muted-foreground" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-72" align="end">
-            <div className="px-3 py-2 flex items-center gap-3 border-b">
-              <Avatar className="h-10 w-10">
-                <AvatarImage src={profilePic || diceBearUrl} />
-                <AvatarFallback>{userInitial}</AvatarFallback>
-              </Avatar>
+            <ChevronDown
+              size={16}
+              className="text-gray-500 dark:text-gray-400"
+            />
+          </button>
+
+          <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-md shadow-lg z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 border border-gray-200 dark:border-gray-700">
+            <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="h-10 w-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center overflow-hidden">
+                {profilePic ? (
+                  <img
+                    src={profilePic}
+                    alt="Profile"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="text-sm font-medium">{userInitial}</span>
+                )}
+              </div>
               <div>
-                <div className="font-medium">{userName}</div>
-                <div className="text-xs text-muted-foreground">{userId}</div>
+                <div className="font-medium">{userName || "User"}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {userId}
+                </div>
               </div>
             </div>
-            <Dialog
-              open={isProfileDialogOpen}
-              onOpenChange={setIsProfileDialogOpen}
+
+            <button
+              onClick={() => setIsProfileDialogOpen(true)}
+              className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
             >
-              <DialogTrigger asChild>
-                <DropdownMenuItem
-                  onSelect={(e) => e.preventDefault()}
-                  className="flex items-center gap-2 mt-1"
-                >
-                  <UserIcon className="h-4 w-4" />
-                  Profile
-                </DropdownMenuItem>
-              </DialogTrigger>
-              <DialogContent className="overflow-y-scroll max-h-[90vh] xl:min-w-xl">
-                <DialogHeader>
-                  <DialogTitle>Edit Profile</DialogTitle>
-                </DialogHeader>
-                <div className="flex flex-col items-center mb-4">
-                  <Avatar className="h-20 w-20 mb-2">
-                    <AvatarImage src={profilePic || diceBearUrl} />
-                    <AvatarFallback className="text-xl">
-                      {userInitial}
-                    </AvatarFallback>
-                  </Avatar>
-                  <h3 className="font-medium text-lg">{userName}</h3>
-                  <p className="text-xs text-muted-foreground">ID: {userId}</p>
-                </div>
+              <UserIcon className="h-4 w-4" />
+              Profile
+            </button>
 
-                <div className="grid gap-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Name
-                      </label>
-                      <Input
-                        name="name"
-                        placeholder="Your name"
-                        value={formData.name}
-                        onChange={handleChange}
-                        className="h-8"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Age
-                      </label>
-                      <Input
-                        name="age"
-                        type="number"
-                        placeholder="Your age"
-                        value={formData.age}
-                        onChange={handleChange}
-                        className="h-8"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">
-                      Gender
-                    </label>
-                    <Select
-                      value={formData.gender}
-                      onValueChange={(val) =>
-                        setFormData((prev) => ({ ...prev, gender: val }))
-                      }
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="MALE">Male</SelectItem>
-                        <SelectItem value="FEMALE">Female</SelectItem>
-                        <SelectItem value="OTHER">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">
-                      Bio
-                    </label>
-                    <Textarea
-                      name="description"
-                      placeholder="Tell us about yourself..."
-                      value={formData.description}
-                      onChange={handleChange}
-                      className="min-h-16 text-sm resize-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">
-                      Interests
-                    </label>
-                    <Input
-                      name="interests"
-                      placeholder="Photography, Travel, Music, etc."
-                      value={formData.interests}
-                      onChange={handleChange}
-                      className="h-8"
-                    />
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Separate with commas
-                    </p>
-                  </div>
-                  <div className="space-y-2 mt-1">
-                    <label className="text-xs font-medium block">
-                      Profile Pictures
-                    </label>
-
-                    <div
-                      className={`border border-dashed rounded-lg p-4 text-center transition-all ${
-                        isUploading
-                          ? "bg-blue-50 dark:bg-blue-950 border-blue-300"
-                          : ""
-                      }`}
-                    >
-                      {isUploading ? (
-                        <div className="space-y-2">
-                          <div className="flex justify-center">
-                            <Loader2
-                              className="animate-spin text-blue-500"
-                              size={20}
-                            />
-                          </div>
-                          <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                            Uploading image...
-                          </p>
-                          <Progress value={uploadProgress} className="h-2" />
-                        </div>
-                      ) : previewUrl ? (
-                        <div className="space-y-2">
-                          <Avatar className="h-16 w-16 mx-auto">
-                            <AvatarImage src={previewUrl} alt="Preview" />
-                            <AvatarFallback>Preview</AvatarFallback>
-                          </Avatar>
-                          <p className="text-xs">Processing image...</p>
-                        </div>
-                      ) : (
-                        <label className="cursor-pointer flex flex-col items-center gap-1 py-2">
-                          <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                            <Upload
-                              size={16}
-                              className="text-blue-600 dark:text-blue-400"
-                            />
-                          </div>
-                          <span className="text-xs font-medium">
-                            Upload a profile picture
-                          </span>
-                          <p className="text-xs text-muted-foreground">
-                            JPG, PNG or GIF up to 10MB
-                          </p>
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleFileChange}
-                            className="hidden"
-                            disabled={isUploading}
-                          />
-                        </label>
-                      )}
-                    </div>
-
-                    {formData.profilePics.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2 mt-2">
-                        {formData.profilePics.map((pic) => (
-                          <div
-                            key={pic.imageId}
-                            className="relative aspect-square rounded-md overflow-hidden group"
-                          >
-                            <Avatar className="h-full w-full rounded-none">
-                              <AvatarImage src={pic.url} alt="Profile" />
-                              <AvatarFallback>P</AvatarFallback>
-                            </Avatar>
-                            <Button
-                              size="icon"
-                              variant="destructive"
-                              onClick={() => removePic(pic.imageId)}
-                              className="absolute top-1 right-1 w-5 h-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X size={12} />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <DialogFooter className="mt-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsProfileDialogOpen(false)}
-                    className="h-8"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleSaveProfile}
-                    disabled={saveMutation.isLoading}
-                    className="h-8"
-                  >
-                    {saveMutation.isLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                      </>
-                    ) : (
-                      <>Save</>
-                    )}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <Link href="/help" passHref>
-              <DropdownMenuItem className="flex items-center gap-2 cursor-pointer">
-                <HeartHandshakeIcon className="h-4 w-4" />
-                Help & Feedback
-              </DropdownMenuItem>
-            </Link>
-            <DropdownMenuSeparator />
-            <Link href="/privacy" passHref>
-              <DropdownMenuItem className="flex items-center gap-2 cursor-pointer">
-                <CookieIcon className="h-4 w-4" />
-                Privacy Policy
-              </DropdownMenuItem>
-            </Link>
-            <Link href="/terms" passHref>
-              <DropdownMenuItem className="flex items-center gap-2 cursor-pointer">
-                <ReceiptTextIcon className="h-4 w-4" />
-                Terms & Conditions
-              </DropdownMenuItem>
-            </Link>
-            <DropdownMenuSeparator />
-            <Dialog
-              open={isDeleteDialogOpen}
-              onOpenChange={setIsDeleteDialogOpen}
+            <Link
+              href="/help"
+              className="block px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
             >
-              <DialogTrigger asChild>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={(e) => e.preventDefault()}
-                  className="flex items-center gap-2 text-red-500 dark:text-red-400"
-                >
-                  <Trash2Icon className="h-4 w-4" />
-                  Delete Account
-                </DropdownMenuItem>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Are you absolutely sure?</DialogTitle>
-                </DialogHeader>
-                <p className="text-sm text-muted-foreground">
-                  This action cannot be undone. This will permanently delete
-                  your account and remove your data from our servers.
-                </p>
-                <DialogFooter className="gap-2 sm:justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsDeleteDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={handleLogout}
-                    disabled={deleteAccountMutation.isLoading}
-                  >
-                    {deleteAccountMutation.isLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>Yes, Delete My Account</>
-                    )}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <HeartHandshakeIcon className="h-4 w-4" />
+              Help & Feedback
+            </Link>
+
+            <div className="border-t border-gray-200 dark:border-gray-700"></div>
+
+            <Link
+              href="/privacy"
+              className="block px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+            >
+              <CookieIcon className="h-4 w-4" />
+              Privacy Policy
+            </Link>
+
+            <Link
+              href="/terms"
+              className="block px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+            >
+              <ReceiptTextIcon className="h-4 w-4" />
+              Terms & Conditions
+            </Link>
+
+            <div className="border-t border-gray-200 dark:border-gray-700"></div>
+
+            <button
+              onClick={() => setIsDeleteDialogOpen(true)}
+              className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
+            >
+              <Trash2Icon className="h-4 w-4" />
+              Delete Account
+            </button>
+          </div>
+        </div>
       );
     }
 
-    // User is not logged in, show login button
     return (
-      <Button
-        variant="default"
-        size="sm"
+      <button
         onClick={handleAnonymousLogin}
         disabled={isLoggingIn}
-        className="rounded-full px-4"
+        className="rounded-full px-4 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
       >
         {isLoggingIn ? (
-          <>
-            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+          <span className="flex items-center gap-2">
+            <Loader2 className="h-3 w-3 animate-spin" />
             Logging in...
-          </>
+          </span>
         ) : (
           "Continue Anonymously"
         )}
-      </Button>
+      </button>
     );
   };
 
   return (
-    <>
-      <header className="flex items-center justify-between gap-x-6 w-full">
-        <Link href="/" className="flex items-center gap-x-2 select-none">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">Meetsup</span>
-            <Badge variant="outline" className="font-medium">
-              v0.1.0
-            </Badge>
+    <header className="flex items-center justify-between w-full p-4">
+      <Link href="/" className="flex items-center gap-2">
+        <span className="text-lg font-semibold">Meetsup</span>
+        <span className="text-xs px-2 py-1 rounded-full bg-gray-200 dark:bg-gray-700">
+          v0.1.0
+        </span>
+      </Link>
+
+      <div className="flex items-center gap-3">
+        <button className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
+          {/* Replace with your theme toggle icon */}
+          <span>🌓</span>
+        </button>
+        {renderAuthSection()}
+      </div>
+
+      {/* Profile Dialog */}
+      {isProfileDialogOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Edit Profile</h2>
+              <button
+                onClick={() => setIsProfileDialogOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center mb-4">
+              <div className="h-20 w-20 rounded-full bg-gray-300 dark:bg-gray-600 mb-2 flex items-center justify-center overflow-hidden">
+                {profilePic ? (
+                  <img
+                    src={profilePic}
+                    alt="Profile"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="text-2xl font-medium">{userInitial}</span>
+                )}
+              </div>
+              <h3 className="font-medium text-lg">{userName || "User"}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                ID: {userId}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Name</label>
+                  <input
+                    name="name"
+                    type="text"
+                    placeholder="Your name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Age</label>
+                  <input
+                    name="age"
+                    type="number"
+                    placeholder="Your age"
+                    value={formData.age}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1">Gender</label>
+                <select
+                  value={formData.gender}
+                  onChange={(e) =>
+                    setFormData({ ...formData, gender: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700"
+                >
+                  <option value="MALE">Male</option>
+                  <option value="FEMALE">Female</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1">Bio</label>
+                <textarea
+                  name="description"
+                  placeholder="Tell us about yourself..."
+                  value={formData.description}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 min-h-[80px]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1">
+                  Interests
+                </label>
+                <input
+                  name="interests"
+                  placeholder="Photography, Travel, Music, etc."
+                  value={formData.interests}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Separate with commas
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1">
+                  Profile Pictures
+                </label>
+                <div
+                  className={`border-2 border-dashed rounded-lg p-4 text-center ${
+                    isUploading
+                      ? "border-blue-300 bg-blue-50 dark:bg-blue-900/20"
+                      : "border-gray-300 dark:border-gray-600"
+                  }`}
+                >
+                  {isUploading ? (
+                    <div className="space-y-2">
+                      <div className="flex justify-center">
+                        <Loader2
+                          className="animate-spin text-blue-500"
+                          size={20}
+                        />
+                      </div>
+                      <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                        Uploading image...
+                      </p>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                        <div
+                          className="bg-blue-600 h-1.5 rounded-full"
+                          style={{ width: `${uploadProgress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  ) : previewUrl ? (
+                    <div className="space-y-2">
+                      <div className="h-16 w-16 rounded-full mx-auto overflow-hidden">
+                        <img
+                          src={previewUrl}
+                          alt="Preview"
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <p className="text-xs">Processing image...</p>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer flex flex-col items-center gap-1 py-2">
+                      <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                        <Upload
+                          size={16}
+                          className="text-blue-600 dark:text-blue-400"
+                        />
+                      </div>
+                      <span className="text-xs font-medium">
+                        Upload a profile picture
+                      </span>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        JPG, PNG or GIF up to 10MB
+                      </p>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        className="hidden"
+                        disabled={isUploading}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {formData.profilePics.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mt-3">
+                    {formData.profilePics.map((pic) => (
+                      <div
+                        key={pic.imageId}
+                        className="relative aspect-square rounded-md overflow-hidden group"
+                      >
+                        <div className="h-full w-full bg-gray-200 dark:bg-gray-700">
+                          <img
+                            src={pic.url}
+                            alt="Profile"
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                        <button
+                          onClick={() => removePic(pic.imageId)}
+                          className="absolute top-1 right-1 w-5 h-5 p-0 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setIsProfileDialogOpen(false)}
+                className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveProfile}
+                disabled={saveMutation.isLoading}
+                className="px-4 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-md disabled:opacity-50 flex items-center gap-2"
+              >
+                {saveMutation.isLoading && (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                )}
+                Save
+              </button>
+            </div>
           </div>
-        </Link>
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          {renderAuthSection()}
         </div>
-      </header>
-    </>
+      )}
+
+      {/* Delete Account Dialog */}
+      {isDeleteDialogOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">
+                Are you absolutely sure?
+              </h2>
+              <button
+                onClick={() => setIsDeleteDialogOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                &times;
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              This action cannot be undone. This will permanently delete your
+              account and remove your data from our servers.
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setIsDeleteDialogOpen(false)}
+                className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLogout}
+                disabled={loading}
+                className="px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-md disabled:opacity-50 flex items-center gap-2"
+              >
+                {loading && <Loader2 className="h-3 w-3 animate-spin" />}
+                Delete Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </header>
   );
 }

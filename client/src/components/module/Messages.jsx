@@ -1,450 +1,278 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useEffect, useState } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { Card, CardContent } from "@/components/ui/card";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Settings,
-  Search,
-  SortDesc,
-  SortAsc,
-  Check,
-  X,
-  Image,
-  Calendar,
-  ChevronRight,
-  Eye,
-  EyeOff,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-
-// Mock data based on the schema
-const mockUsers = [
-  {
-    id: "1",
-    fId: "user1",
-    name: "John Doe",
-    age: 25,
-    gender: "MALE",
-    profilePics: JSON.stringify(["/avatars/john.jpg"]),
-  },
-  {
-    id: "2",
-    fId: "user2",
-    name: "Jane Smith",
-    age: 28,
-    gender: "FEMALE",
-    profilePics: JSON.stringify(["/avatars/jane.jpg"]),
-  },
-  {
-    id: "3",
-    fId: "user3",
-    name: "Alex Johnson",
-    age: 32,
-    gender: "OTHER",
-    profilePics: JSON.stringify(["/avatars/alex.jpg"]),
-  },
-];
-
-const mockConversations = [
-  {
-    id: "conv1",
-    user1Id: "1",
-    user2Id: "2",
-    type: "INSTANT",
-    createdAt: new Date(2025, 3, 10),
-    updatedAt: new Date(2025, 3, 13, 10, 30),
-  },
-  {
-    id: "conv2",
-    user1Id: "1",
-    user2Id: "3",
-    type: "FOCUSED",
-    createdAt: new Date(2025, 3, 5),
-    updatedAt: new Date(2025, 3, 12, 15, 45),
-  },
-  {
-    id: "conv3",
-    user1Id: "3",
-    user2Id: "2",
-    type: "INSTANT",
-    createdAt: new Date(2025, 3, 1),
-    updatedAt: new Date(2025, 3, 11, 8, 20),
-  },
-];
-
-const mockMessages = [
-  {
-    id: "msg1",
-    conversationId: "conv1",
-    senderId: "2",
-    type: "TEXT",
-    content: "Hey, how are you doing today?",
-    createdAt: new Date(2025, 3, 13, 10, 30),
-  },
-  {
-    id: "msg2",
-    conversationId: "conv2",
-    senderId: "3",
-    type: "TEXT",
-    content: "Did you see that new movie?",
-    createdAt: new Date(2025, 3, 12, 15, 45),
-  },
-  {
-    id: "msg3",
-    conversationId: "conv3",
-    senderId: "2",
-    type: "IMAGE",
-    imageId: "img123",
-    content: "Check out this photo!",
-    createdAt: new Date(2025, 3, 11, 8, 20),
-  },
-];
-
-// Mock requests - conversation requests pending approval
-const mockRequests = [
-  {
-    id: "req1",
-    user: mockUsers[1],
-    message: "Hi! I'd like to connect with you.",
-    createdAt: new Date(2025, 3, 13, 9, 15),
-  },
-  {
-    id: "req2",
-    user: mockUsers[2],
-    message: "Hello there! Can we chat?",
-    createdAt: new Date(2025, 3, 12, 14, 30),
-  },
-];
-
-const formatMessageDate = (date) => {
-  const now = new Date();
-  const messageDate = new Date(date);
-
-  // Same day
-  if (messageDate.toDateString() === now.toDateString()) {
-    return messageDate.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  // Within last week
-  const diffDays = Math.floor((now - messageDate) / (1000 * 60 * 60 * 24));
-  if (diffDays < 7) {
-    const options = { weekday: "short" };
-    return messageDate.toLocaleDateString(undefined, options);
-  }
-
-  // Otherwise
-  return messageDate.toLocaleDateString([], { month: "short", day: "numeric" });
-};
+import { Skeleton } from "@/components/ui/skeleton";
+import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthProvider";
+import { useSocket } from "@/lib/socket"; // Import the socket hook
 
 export default function Messages() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState("desc");
-  const [activeTab, setActiveTab] = useState("chats");
-  const [settings, setSettings] = useState({
-    blurImages: true,
-    allowImageRequests: false,
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [onlineUsers, setOnlineUsers] = useState(new Set()); // Change to Set for consistency with ChatRoom
+  const { socket, isReady } = useSocket(); // Use the socket hook like in ChatRoom
+
+  // Fetch conversations using TanStack Query
+  const {
+    data: conversations,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: async () => {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations`,
+        { credentials: "include" }
+      );
+
+      if (!res.ok) {
+        throw new Error("Failed to fetch conversations");
+      }
+
+      const data = await res.json();
+      return data.conversations.sort(
+        (a, b) =>
+          new Date(b.messages?.[0]?.createdAt ?? 0).getTime() -
+          new Date(a.messages?.[0]?.createdAt ?? 0).getTime()
+      );
+    },
+    enabled: !!user, // Only run query if user is logged in
+    refetchInterval: 2000, // Refetch every 10 seconds
+    staleTime: 5000, // Consider data stale after 5 seconds
   });
 
-  // Get conversations with the last message and other user details
-  const getEnrichedConversations = () => {
-    const currentUserId = "1"; // Assuming logged in user is id 1
+  // Setup socket connection for real-time updates
+  useEffect(() => {
+    if (!user || !isReady || !socket || !conversations) return;
 
-    return mockConversations.map((conv) => {
-      const otherUserId =
-        conv.user1Id === currentUserId ? conv.user2Id : conv.user1Id;
-      const otherUser = mockUsers.find((user) => user.id === otherUserId);
+    // Collect all user IDs from conversations
+    const userIds = conversations
+      .flatMap((conversation) => [conversation.user1Id, conversation.user2Id])
+      .filter((id) => id !== user.id); // Filter out current user
 
-      const lastMessage = mockMessages
-        .filter((msg) => msg.conversationId === conv.id)
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
+    // Get unique user IDs
+    const uniqueUserIds = [...new Set(userIds)];
 
-      return {
-        ...conv,
-        otherUser,
-        lastMessage,
-      };
+    // Check online status of all users in conversations
+    socket.emit("getOnlineStatus", uniqueUserIds, (statusMap) => {
+      const onlineSet = new Set();
+      Object.entries(statusMap).forEach(([userId, isOnline]) => {
+        if (isOnline) onlineSet.add(userId);
+      });
+      setOnlineUsers(onlineSet);
     });
+
+    // Listen for online status changes
+    const onUserOnline = (user) => {
+      setOnlineUsers((prev) => new Set(prev).add(user.userId));
+    };
+
+    const onUserOffline = (user) => {
+      setOnlineUsers((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(user.userId);
+        return newSet;
+      });
+    };
+
+    // Listen for new messages
+    const onMessageReceive = (message) => {
+      // Update the cached data when new messages arrive
+      queryClient.setQueryData(["conversations"], (oldData) => {
+        if (!oldData) return oldData;
+
+        // Find the conversation this message belongs to
+        const updatedConversations = [...oldData];
+        const conversationIndex = updatedConversations.findIndex(
+          (c) => c.id === message.conversationId
+        );
+
+        if (conversationIndex !== -1) {
+          // Add the message to the beginning of the messages array
+          const conversation = { ...updatedConversations[conversationIndex] };
+          conversation.messages = [message, ...(conversation.messages || [])];
+
+          // Update the conversation
+          updatedConversations[conversationIndex] = conversation;
+
+          // Sort conversations by most recent message
+          return updatedConversations.sort(
+            (a, b) =>
+              new Date(b.messages?.[0]?.createdAt ?? 0).getTime() -
+              new Date(a.messages?.[0]?.createdAt ?? 0).getTime()
+          );
+        }
+
+        return oldData;
+      });
+    };
+
+    // Register event listeners
+    socket.on("user:online", onUserOnline);
+    socket.on("user:offline", onUserOffline);
+    socket.on("message:receive", onMessageReceive);
+
+    return () => {
+      // Clean up event listeners
+      socket.off("user:online", onUserOnline);
+      socket.off("user:offline", onUserOffline);
+      socket.off("message:receive", onMessageReceive);
+    };
+  }, [user, queryClient, socket, isReady, conversations]);
+
+  // For loading state
+  if (isLoading || !user) {
+    return (
+      <div className="space-y-4 p-4">
+        {[...Array(5)].map((_, i) => (
+          <Skeleton key={i} className="h-20 w-full rounded-xl" />
+        ))}
+      </div>
+    );
+  }
+
+  // For error state
+  if (error) {
+    return (
+      <div className="p-4 text-center text-red-500">
+        <p>Error loading conversations</p>
+        <button
+          onClick={() => queryClient.invalidateQueries(["conversations"])}
+          className="mt-2 px-4 py-2 bg-muted rounded-md text-sm"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  const getPartnerName = (conversation) => {
+    return user?.id === conversation.user1Id
+      ? conversation.user2?.name
+      : conversation.user1?.name;
   };
 
-  // Sort and filter conversations
-  const getSortedFilteredConversations = () => {
-    const enriched = getEnrichedConversations();
-
-    // Filter based on search query
-    const filtered = searchQuery
-      ? enriched.filter(
-          (conv) =>
-            conv.otherUser.name
-              .toLowerCase()
-              .includes(searchQuery.toLowerCase()) ||
-            (conv.lastMessage?.content &&
-              conv.lastMessage.content
-                .toLowerCase()
-                .includes(searchQuery.toLowerCase()))
-        )
-      : enriched;
-
-    // Sort by last message date
-    return filtered.sort((a, b) => {
-      const dateA = a.lastMessage?.createdAt || a.updatedAt;
-      const dateB = b.lastMessage?.createdAt || b.updatedAt;
-      return sortOrder === "desc" ? dateB - dateA : dateA - dateB;
-    });
+  const getPartnerId = (conversation) => {
+    return user?.id === conversation.user1Id
+      ? conversation.user2Id
+      : conversation.user1Id;
   };
 
-  const conversations = getSortedFilteredConversations();
+  const getPartnerAvatar = (conversation) => {
+    const partner =
+      user?.id === conversation.user1Id
+        ? conversation.user2
+        : conversation.user1;
 
-  const toggleSortOrder = () => {
-    setSortOrder(sortOrder === "desc" ? "asc" : "desc");
+    return partner?.profilePics?.[0]?.url || null;
+  };
+
+  const getInitials = (name) => {
+    return (
+      name
+        ?.split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .substring(0, 2) || "??"
+    );
+  };
+
+  // Check if a user is online
+  const isUserOnline = (userId) => {
+    return onlineUsers.has(userId);
   };
 
   return (
-    <div className="grid grid-cols-16 grid-rows-22 h-full w-full divide-y">
-      <div className="col-span-16 row-span-2 flex items-center px-6">
-        <div className="flex items-center justify-between w-full gap-2">
-          <h2 className="text-lg">Messages</h2>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="icon">
-                <Settings className="h-5 w-5" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Message Settings</DialogTitle>
-                <DialogDescription>
-                  Customize your messaging experience
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="blur-images">Blur images</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Blur images until you hover over them
-                    </p>
-                  </div>
-                  <Switch
-                    id="blur-images"
-                    checked={settings.blurImages}
-                    onCheckedChange={(checked) =>
-                      setSettings({ ...settings, blurImages: checked })
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="allow-images">Allow image requests</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Let people send you images in initial messages
-                    </p>
-                  </div>
-                  <Switch
-                    id="allow-images"
-                    checked={settings.allowImageRequests}
-                    onCheckedChange={(checked) =>
-                      setSettings({ ...settings, allowImageRequests: checked })
-                    }
-                  />
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-      <div className="col-span-16 row-span-2 flex items-center gap-2 px-6 border-b">
-        <div className="relative flex-grow">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search messages"
-            className="pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={toggleSortOrder}
-          title={sortOrder === "desc" ? "Newest first" : "Oldest first"}
-        >
-          {sortOrder === "desc" ? (
-            <SortDesc className="h-4 w-4" />
-          ) : (
-            <SortAsc className="h-4 w-4" />
-          )}
-        </Button>
-      </div>
-      <Tabs
-        defaultValue="chats"
-        className="flex-grow flex flex-col col-span-16 row-span-20"
-        onValueChange={setActiveTab}
-      >
-        <TabsList className="grid grid-cols-2 mt-3 mx-6 w-full">
-          <TabsTrigger value="chats">Chats</TabsTrigger>
-          <TabsTrigger value="requests">
-            Requests
-            {mockRequests.length > 0 && (
-              <Badge
-                variant="destructive"
-                className="ml-1 h-5 min-w-5 flex items-center justify-center rounded-full text-xs"
-              >
-                {mockRequests.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+    <div className="container max-w-md mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-6">Messages</h1>
 
-        <TabsContent value="chats" className="flex-grow flex flex-col pt-2">
-          <ScrollArea className="flex-grow">
-            <div className="space-y-4">
-              {conversations.length > 0 ? (
-                conversations.map((conv) => (
-                  <button
-                    key={conv.id}
-                    className="w-full text-left flex items-center gap-3 py-2 rounded-lg hover:bg-muted transition-colors"
-                  >
+      {!conversations || conversations.length === 0 ? (
+        <div className="text-center py-10">
+          <p className="text-muted-foreground">No conversations yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {conversations.map((conversation) => (
+            <Link
+              key={conversation.id}
+              href={`/c/${conversation.id}`}
+              className="block"
+            >
+              <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardContent className="p-4">
+                  <div className="flex items-center">
                     <div className="relative">
-                      <Avatar className="h-12 w-12">
-                        <AvatarImage
-                          src={JSON.parse(conv.otherUser.profilePics)[0] || ""}
-                          alt={conv.otherUser.name}
-                        />
-                        <AvatarFallback>
-                          {conv.otherUser.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-background"></span>
-                    </div>
-
-                    <div className="flex-grow min-w-0">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">
-                          {conv.otherUser.name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {conv.lastMessage
-                            ? formatMessageDate(conv.lastMessage.createdAt)
-                            : formatMessageDate(conv.updatedAt)}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1 truncate text-sm text-muted-foreground">
-                        {conv.lastMessage?.type === "IMAGE" && (
-                          <Image className="h-3.5 w-3.5 flex-shrink-0" />
+                      <Avatar className="h-12 w-12 mr-4">
+                        {getPartnerAvatar(conversation) ? (
+                          <AvatarImage src={getPartnerAvatar(conversation)} />
+                        ) : (
+                          <AvatarFallback>
+                            {getInitials(getPartnerName(conversation))}
+                          </AvatarFallback>
                         )}
-                        <span className="truncate">
-                          {conv.lastMessage?.content || "Start chatting now"}
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>No conversations found</p>
-                  {searchQuery && (
-                    <p className="text-sm mt-1">Try adjusting your search</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-
-        <TabsContent value="requests" className="flex-grow flex flex-col pt-2">
-          <ScrollArea className="flex-grow">
-            <div className="px-4 space-y-3">
-              {mockRequests.length > 0 ? (
-                mockRequests.map((request) => (
-                  <div
-                    key={request.id}
-                    className="border rounded-lg p-4 bg-card"
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <Avatar className="h-12 w-12">
-                        <AvatarImage
-                          src={JSON.parse(request.user.profilePics)[0] || ""}
-                          alt={request.user.name}
-                        />
-                        <AvatarFallback>
-                          {request.user.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")}
-                        </AvatarFallback>
                       </Avatar>
+                      {/* Online status indicator on avatar */}
+                      <span
+                        className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ${
+                          isUserOnline(getPartnerId(conversation))
+                            ? "bg-green-500"
+                            : "bg-gray-500"
+                        } ring-1 ring-white`}
+                      />
+                    </div>
 
-                      <div>
-                        <div className="font-medium">{request.user.name}</div>
-                        <div className="text-sm text-muted-foreground flex items-center gap-1">
-                          <Calendar className="h-3.5 w-3.5" />
-                          {request.user.age} •{" "}
-                          {request.user.gender === "MALE"
-                            ? "Male"
-                            : request.user.gender === "FEMALE"
-                            ? "Female"
-                            : "Other"}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium truncate flex items-center gap-1">
+                          {getPartnerName(conversation)}
+                          {isUserOnline(getPartnerId(conversation)) && (
+                            <span className="text-xs text-green-500">•</span>
+                          )}
+                        </div>
+                        {conversation.messages?.[0]?.createdAt && (
+                          <div className="text-xs text-muted-foreground">
+                            {formatDistanceToNow(
+                              new Date(conversation.messages[0].createdAt),
+                              {
+                                addSuffix: true,
+                              }
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between mt-1">
+                        <div className="text-sm text-muted-foreground truncate max-w-[70%]">
+                          {conversation.messages?.[0]?.content ||
+                            "No messages yet"}
+                        </div>
+
+                        <div className="flex items-center">
+                          {isUserOnline(getPartnerId(conversation)) && (
+                            <Badge
+                              variant="outline"
+                              className="rounded-full gap-1 px-2 py-0.5 text-xs border-green-500 text-green-600"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                              Online
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </div>
-
-                    <p className="text-sm mb-4">{request.message}</p>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
-                        {formatMessageDate(request.createdAt)}
-                      </span>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="destructive">
-                          <X className="h-4 w-4 mr-1" />
-                          Decline
-                        </Button>
-                        <Button size="sm">
-                          <Check className="h-4 w-4 mr-1" />
-                          Accept
-                        </Button>
-                      </div>
-                    </div>
                   </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>No pending requests</p>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-      </Tabs>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
