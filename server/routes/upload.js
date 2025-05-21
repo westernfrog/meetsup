@@ -1,14 +1,13 @@
 const express = require("express");
 const multer = require("multer");
-const imagekit = require("../lib/imagekit"); // Make sure it's initialized with publicKey, privateKey, urlEndpoint
+const cloudinary = require("../lib/cloudinary");
+const streamifier = require("streamifier");
 
 const router = express.Router();
 
-// Multer setup (in-memory storage)
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// Route to handle image upload
 router.post("/upload", upload.single("image"), async (req, res) => {
   const file = req.file;
 
@@ -17,36 +16,31 @@ router.post("/upload", upload.single("image"), async (req, res) => {
   }
 
   try {
-    // // Check file size (less than 1MB)
-    // if (file.size > 1 * 1024 * 1024) {
-    //   return res.status(400).json({ error: "File must be under 1MB" });
-    // }
-
-    const result = await imagekit.upload({
-      file: file.buffer, // raw binary
-      fileName: file.originalname,
-      folder: "/",
-      extensions: [
-        {
-          name: "google-auto-tagging",
-          maxTags: 5,
-          minConfidence: 95,
-        },
-      ],
-      transformation: {
-        pre: "l-text,i-Imagekit,fs-50,l-end",
-        post: [
+    const streamUpload = (req) => {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
           {
-            type: "transformation",
-            value: "w-100",
+            folder: "m33t5up",
+            transformation: [],
+            tags: ["auto-tag"],
           },
-        ],
-      },
-    });
+          (error, result) => {
+            if (result) {
+              resolve(result);
+            } else {
+              reject(error);
+            }
+          }
+        );
+        streamifier.createReadStream(req.file.buffer).pipe(stream);
+      });
+    };
+
+    const result = await streamUpload(req);
 
     res.status(200).json({
-      url: result.url,
-      fileId: result.fileId,
+      url: result.secure_url,
+      publicId: result.public_id,
     });
   } catch (err) {
     console.error("Upload failed:", err.message);

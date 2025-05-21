@@ -15,7 +15,7 @@ import {
 import { useSocket } from "@/lib/socket";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, WifiOff, Wifi } from "lucide-react";
+import { Send, WifiOff, Wifi, Image as ImageIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export default function ChatRoom() {
@@ -29,12 +29,12 @@ export default function ChatRoom() {
   const [typingUser, setTypingUser] = useState(null);
   const typingTimeoutRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [isUploading, setIsUploading] = useState(false);
 
-  // Online status state
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [userStatus, setUserStatus] = useState("online");
 
-  // Fetch conversation data
   useEffect(() => {
     if (!roomId || !isReady) return;
 
@@ -53,7 +53,6 @@ export default function ChatRoom() {
         setMessages(data.conversation.messages || []);
         socket.emit("join", roomId);
 
-        // Check online status of both users
         if (data.conversation.user1?.id && data.conversation.user2?.id) {
           socket.emit(
             "getOnlineStatus",
@@ -77,18 +76,15 @@ export default function ChatRoom() {
     fetchConversation();
   }, [roomId, isReady, socket]);
 
-  // Socket event handlers
   useEffect(() => {
     if (!isReady || !socket || !roomId) return;
 
     const onMessageReceive = (msg) => {
       setMessages((prev) => {
-        // Check if message already exists by ID to avoid duplicates
         const exists = prev.some((m) => m.id === msg.id);
         return exists ? prev : [...prev, msg];
       });
 
-      // Clear typing indicator when message is received
       if (msg.senderId === typingUser?.userId) {
         setTypingUser(null);
       }
@@ -105,7 +101,6 @@ export default function ChatRoom() {
     };
 
     const onPartnerDisconnected = (user) => {
-      // Show disconnection status
       setMessages((prev) => [
         ...prev,
         {
@@ -116,7 +111,6 @@ export default function ChatRoom() {
         },
       ]);
 
-      // Clear typing indicator if it was this user
       if (typingUser?.userId === user.userId) {
         setTypingUser(null);
       }
@@ -125,7 +119,6 @@ export default function ChatRoom() {
     const onUserOnline = (user) => {
       setOnlineUsers((prev) => new Set(prev).add(user.userId));
 
-      // Add system message for user coming online
       if (
         conversation?.user1?.id === user.userId ||
         conversation?.user2?.id === user.userId
@@ -149,7 +142,6 @@ export default function ChatRoom() {
         return newSet;
       });
 
-      // Add system message for user going offline
       if (
         conversation?.user1?.id === user.userId ||
         conversation?.user2?.id === user.userId
@@ -170,7 +162,6 @@ export default function ChatRoom() {
       setError(msg);
     };
 
-    // Register event listeners
     socket.on("message:receive", onMessageReceive);
     socket.on("user:typing", onUserTyping);
     socket.on("user:stoppedTyping", onUserStoppedTyping);
@@ -190,7 +181,6 @@ export default function ChatRoom() {
     };
   }, [isReady, roomId, socket, typingUser, conversation]);
 
-  // Toggle current user's online status
   const toggleOnlineStatus = useCallback(() => {
     if (!socket || !isReady) return;
 
@@ -199,7 +189,6 @@ export default function ChatRoom() {
     setUserStatus(newStatus);
   }, [socket, isReady, userStatus]);
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -208,29 +197,73 @@ export default function ChatRoom() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Handle message sending
   const handleSend = useCallback(() => {
     if (!newMessage.trim() || !roomId || !isReady || !socket) return;
 
     socket.emit("message:send", {
       roomId,
       content: newMessage.trim(),
+      type: "TEXT",
     });
 
     setNewMessage("");
     handleStopTyping();
   }, [newMessage, roomId, isReady, socket]);
 
-  // Handle typing indicators
+  const handleImageUpload = useCallback(
+    async (event) => {
+      const file = event.target.files[0];
+      if (!file || !roomId || !isReady || !socket) return;
+
+      event.target.value = "";
+
+      try {
+        setIsUploading(true);
+
+        const formData = new FormData();
+        formData.append("image", file);
+
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/upload`,
+          {
+            method: "POST",
+            body: formData,
+            credentials: "include",
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to upload image");
+        }
+
+        const { url, fileId } = await response.json();
+
+        socket.emit("message:send", {
+          roomId,
+          content: url,
+          imageId: fileId,
+          type: "IMAGE",
+        });
+      } catch (err) {
+        setError("Failed to upload image: " + err.message);
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [roomId, isReady, socket]
+  );
+
+  const handleImageButtonClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
   const handleTyping = useCallback(() => {
     if (!isReady || !socket || !roomId) return;
 
     socket.emit("typing:start");
 
-    // Clear existing timeout
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
-    // Set new timeout to stop typing indication after 2 seconds
     typingTimeoutRef.current = setTimeout(() => {
       handleStopTyping();
     }, 2000);
@@ -248,7 +281,6 @@ export default function ChatRoom() {
     (e) => {
       setNewMessage(e.target.value);
 
-      // Trigger typing event if content exists
       if (e.target.value.trim()) {
         handleTyping();
       } else {
@@ -268,7 +300,6 @@ export default function ChatRoom() {
     [handleSend]
   );
 
-  // Check if a user is online
   const isUserOnline = useCallback(
     (userId) => {
       return onlineUsers.has(userId);
@@ -276,7 +307,58 @@ export default function ChatRoom() {
     [onlineUsers]
   );
 
-  console.log(conversation);
+  const renderMessage = (msg, sender) => {
+    if (msg.isSystem) {
+      return (
+        <div key={msg.id} className="flex justify-center">
+          <span className="text-xs text-muted-foreground bg-muted px-3 py-1 rounded-full">
+            {msg.content}
+          </span>
+        </div>
+      );
+    }
+
+    return (
+      <div key={msg.id} className="flex items-start gap-3">
+        <Avatar className="h-8 w-8 relative">
+          {sender.avatar ? (
+            <AvatarImage src={sender.avatar} alt={sender.name} />
+          ) : (
+            <AvatarFallback className="text-xs">
+              {sender.name[0]}
+            </AvatarFallback>
+          )}
+          <span
+            className={`absolute bottom-0 right-0 h-2 w-2 rounded-full ${
+              isUserOnline(sender.id) ? "bg-green-500" : "bg-gray-500"
+            } ring-1 ring-white`}
+          />
+        </Avatar>
+        <div className="space-y-1">
+          <p className="text-sm font-medium flex items-center gap-1">
+            {sender.name}
+            {isUserOnline(sender.id) && (
+              <span className="text-xs text-green-500">•</span>
+            )}
+          </p>
+          <div className="bg-secondary p-3 rounded-lg text-sm max-w-[300px]">
+            {msg.type === "IMAGE" ? (
+              <div className="relative">
+                <img
+                  src={msg.content}
+                  alt="Shared image"
+                  className="rounded object-cover w-full"
+                  onLoad={scrollToBottom}
+                />
+              </div>
+            ) : (
+              msg.content
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (error) {
     return (
@@ -355,7 +437,8 @@ export default function ChatRoom() {
         <ScrollArea className="h-96 px-4">
           <div className="space-y-4 py-4">
             {messages.map((msg) => {
-              // Handle system messages
+              if (!msg) return null;
+
               if (msg.isSystem) {
                 return (
                   <div key={msg.id} className="flex justify-center">
@@ -371,35 +454,7 @@ export default function ChatRoom() {
                   ? conversation.user1
                   : conversation.user2;
 
-              return (
-                <div key={msg.id} className="flex items-start gap-3">
-                  <Avatar className="h-8 w-8 relative">
-                    {sender.avatar ? (
-                      <AvatarImage src={sender.avatar} alt={sender.name} />
-                    ) : (
-                      <AvatarFallback className="text-xs">
-                        {sender.name[0]}
-                      </AvatarFallback>
-                    )}
-                    <span
-                      className={`absolute bottom-0 right-0 h-2 w-2 rounded-full ${
-                        isUserOnline(sender.id) ? "bg-green-500" : "bg-gray-500"
-                      } ring-1 ring-white`}
-                    />
-                  </Avatar>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium flex items-center gap-1">
-                      {sender.name}
-                      {isUserOnline(sender.id) && (
-                        <span className="text-xs text-green-500">•</span>
-                      )}
-                    </p>
-                    <div className="bg-secondary p-3 rounded-lg text-sm">
-                      {msg.content}
-                    </div>
-                  </div>
-                </div>
-              );
+              return renderMessage(msg, sender);
             })}
 
             {/* Typing indicator */}
@@ -416,6 +471,20 @@ export default function ChatRoom() {
               </div>
             )}
 
+            {/* Image uploading indicator */}
+            {isUploading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="flex gap-1 items-center">
+                  <span>Uploading image</span>
+                  <span className="flex">
+                    <span className="animate-bounce">.</span>
+                    <span className="animate-bounce delay-100">.</span>
+                    <span className="animate-bounce delay-200">.</span>
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
@@ -423,6 +492,27 @@ export default function ChatRoom() {
 
       <CardFooter className="pt-4 pb-6">
         <div className="flex w-full items-center gap-2">
+          {/* Hidden file input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageUpload}
+            disabled={!isReady || isUploading}
+          />
+
+          {/* Image upload button */}
+          <Button
+            onClick={handleImageButtonClick}
+            size="icon"
+            variant="outline"
+            disabled={!isReady || isUploading}
+            title="Send an image"
+          >
+            <ImageIcon className="h-4 w-4" />
+          </Button>
+
           <Input
             placeholder="Type your message..."
             value={newMessage}
@@ -430,11 +520,12 @@ export default function ChatRoom() {
             onKeyDown={handleKeyDown}
             onBlur={handleStopTyping}
             className="flex-1"
+            disabled={isUploading}
           />
           <Button
             onClick={handleSend}
             size="icon"
-            disabled={!newMessage.trim() || !isReady}
+            disabled={!newMessage.trim() || !isReady || isUploading}
           >
             <Send className="h-4 w-4" />
           </Button>

@@ -24,38 +24,62 @@ import {
   Users,
   VenusAndMars,
 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Home() {
   const router = useRouter();
   const { socket, isReady } = useSocket();
-  const [isSearching, setIsSearching] = useState(false);
+  const [instantSearching, setInstantSearching] = useState(false);
+  const [focusedSearching, setFocusedSearching] = useState(false);
   const [ageRange, setAgeRange] = useState([18, 99]);
   const [gender, setGender] = useState("any");
   const [usePreferences, setUsePreferences] = useState(false);
 
+  // Derived state for any kind of searching
+  const isSearching = instantSearching || focusedSearching;
+
   useEffect(() => {
     if (!isReady || !socket) return;
 
-    const handlePartnerFound = ({ roomId }) => {
-      setIsSearching(false);
+    const handlePartnerFound = ({ roomId, partner }) => {
+      setInstantSearching(false);
+      setFocusedSearching(false);
+
+      // Navigate to chat room
       router.push(`/c/${roomId}`);
     };
 
+    const handleMatchedWith = ({ roomId, partner, isInstant }) => {
+      // Just notify the user they were matched with someone
+      // but don't navigate them anywhere
+      toast.info(`${partner.name} wants to chat with you!`, {
+        action: {
+          label: "Join Chat",
+          onClick: () => router.push(`/c/${roomId}`),
+        },
+      });
+    };
+
     const handleWaitingForPartner = () => {
-      // Already handled with isSearching state
+      // Show notification that we're waiting for a partner
+      console.log("Waiting for partner...");
     };
 
     const handleFindPartnerCanceled = () => {
-      setIsSearching(false);
+      setInstantSearching(false);
+      setFocusedSearching(false);
+      toast.error("Search canceled");
     };
 
     const handleMatchFailed = ({ reason }) => {
-      setIsSearching(false);
-      // Optional: Add a toast notification here about the failure
+      setInstantSearching(false);
+      setFocusedSearching(false);
+      toast.error(`Match failed: ${reason}`);
     };
 
     // Register event listeners
     socket.on("partnerFound", handlePartnerFound);
+    socket.on("matchedWith", handleMatchedWith);
     socket.on("waitingForPartner", handleWaitingForPartner);
     socket.on("findPartnerCanceled", handleFindPartnerCanceled);
     socket.on("matchFailed", handleMatchFailed);
@@ -63,6 +87,7 @@ export default function Home() {
     // Cleanup event listeners
     return () => {
       socket.off("partnerFound", handlePartnerFound);
+      socket.off("matchedWith", handleMatchedWith);
       socket.off("waitingForPartner", handleWaitingForPartner);
       socket.off("findPartnerCanceled", handleFindPartnerCanceled);
       socket.off("matchFailed", handleMatchFailed);
@@ -71,25 +96,32 @@ export default function Home() {
 
   const findPartner = (useFocus = false) => {
     if (!isReady || !socket) return;
-    setIsSearching(true);
 
     if (useFocus) {
-      socket.emit("findPartner", {
-        preferences: {
-          ageMin: ageRange[0],
-          ageMax: ageRange[1],
-          gender: gender,
-        },
-      });
+      setFocusedSearching(true);
+
+      if (usePreferences) {
+        socket.emit("findPartner", {
+          preferences: {
+            ageMin: ageRange[0],
+            ageMax: ageRange[1],
+            gender: gender,
+          },
+        });
+      } else {
+        socket.emit("findPartner");
+      }
     } else {
-      socket.emit("findPartner");
+      setInstantSearching(true);
+      socket.emit("findPartner", { isInstantMatch: true });
     }
   };
 
   const cancelSearch = () => {
     if (!isReady || !socket) return;
     socket.emit("cancelFindPartner");
-    setIsSearching(false);
+    setInstantSearching(false);
+    setFocusedSearching(false);
   };
 
   return (
@@ -114,6 +146,7 @@ export default function Home() {
             step={1}
             value={ageRange}
             onValueChange={setAgeRange}
+            disabled={isSearching}
             className="py-4"
           />
         </div>
@@ -125,6 +158,7 @@ export default function Home() {
               variant={gender === "Mars" ? "default" : "outline"}
               className="flex-1"
               onClick={() => setGender("Mars")}
+              disabled={isSearching}
             >
               <Mars className="h-4 w-4 mr-2" />
               Male
@@ -133,6 +167,7 @@ export default function Home() {
               variant={gender === "Venus" ? "default" : "outline"}
               className="flex-1"
               onClick={() => setGender("Venus")}
+              disabled={isSearching}
             >
               <Venus className="h-4 w-4 mr-2" />
               Female
@@ -141,6 +176,7 @@ export default function Home() {
               variant={gender === "any" ? "default" : "outline"}
               className="flex-1"
               onClick={() => setGender("any")}
+              disabled={isSearching}
             >
               <VenusAndMars className="h-4 w-4 mr-2" />
               Both
@@ -154,6 +190,7 @@ export default function Home() {
               id="use-preferences"
               checked={usePreferences}
               onCheckedChange={setUsePreferences}
+              disabled={isSearching}
             />
             <Label htmlFor="use-preferences">Enable preference filtering</Label>
           </div>
@@ -171,7 +208,7 @@ export default function Home() {
                 considering preferences.
               </p>
             </div>
-            {isSearching ? (
+            {instantSearching ? (
               <Button
                 onClick={cancelSearch}
                 variant="destructive"
@@ -183,7 +220,7 @@ export default function Home() {
             ) : (
               <Button
                 onClick={() => findPartner(false)}
-                disabled={!isReady}
+                disabled={!isReady || isSearching}
                 className="w-full mt-2"
                 variant="default"
               >
@@ -204,7 +241,7 @@ export default function Home() {
                 for a more tailored experience.
               </p>
             </div>
-            {isSearching ? (
+            {focusedSearching ? (
               <Button
                 onClick={cancelSearch}
                 variant="destructive"
@@ -216,7 +253,7 @@ export default function Home() {
             ) : (
               <Button
                 onClick={() => findPartner(true)}
-                disabled={!isReady || !usePreferences}
+                disabled={!isReady || isSearching || !usePreferences}
                 className="w-full mt-2"
                 variant={usePreferences ? "default" : "outline"}
               >
