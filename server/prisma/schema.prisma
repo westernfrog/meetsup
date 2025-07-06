@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  fId          String   @unique
+  name         String
+  age          Int      @default(18)
+  gender       Gender   @default(ANY)
+  description  String?
+  interests    String[] @default([])
+  profilePics  Json     @default("[]")
+  allowImages  Boolean  @default(false)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  conversationsStarted Conversation[] @relation("User1Conversations")
+  conversationsJoined  Conversation[] @relation("User2Conversations")
+
+  messages Message[] @relation("UserMessages")
+}
+
+model Conversation {
+  id       String    @id @default(auto()) @map("_id") @db.ObjectId
+  user1    User      @relation("User1Conversations", fields: [user1Id], references: [id])
+  user1Id  String    @db.ObjectId
+  user2    User      @relation("User2Conversations", fields: [user2Id], references: [id])
+  user2Id  String    @db.ObjectId
+  messages Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([user1Id])
+  @@index([user2Id])
+}
+
+model Message {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String       @db.ObjectId
+  sender         User         @relation("UserMessages", fields: [senderId], references: [id])
+  senderId       String       @db.ObjectId
+  type           MessageType
+  content        String?
+  imageId        String?
+  seen           Boolean      @default(false)
+  createdAt      DateTime     @default(now()) @map("createdAt")
+
+  @@index([conversationId, createdAt])
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  ANY
+}
