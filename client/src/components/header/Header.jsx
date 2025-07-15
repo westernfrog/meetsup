@@ -20,7 +20,7 @@ export default function Header() {
 
   return (
     <>
-      <header className="flex items-center justify-between gap-2 px-5 py-3 border-b">
+      <header className="flex items-center justify-between gap-2 px-5 py-2 border-b">
         <Link href="/" className="text-xl font-medium">
           Meetsup
           <span className="sr-only">Meetsup</span>
@@ -60,13 +60,16 @@ export default function Header() {
                 className="flex items-center justify-between gap-3 cursor-pointer"
                 onClick={() => setIsProfileOpen(true)}
               >
-                <div className="relative overflow-hidden rounded-md">
+                <div className="relative overflow-hidden rounded-full w-12 h-12 border">
                   <Image
-                    src={`https://api.dicebear.com/9.x/adventurer/svg?seed=${user.id}`}
+                    src={
+                      user.profilePics?.[0]?.url ||
+                      `https://api.dicebear.com/9.x/adventurer/png?seed=${user.id}`
+                    }
                     alt={user.name}
                     width={50}
                     height={50}
-                    className="rounded-full w-13 h-13"
+                    className="rounded-full w-full h-full object-center object-cover"
                   />
                   {/* Assuming online status is not directly available from user object, or handled elsewhere */}
                   {/* {user.online && (

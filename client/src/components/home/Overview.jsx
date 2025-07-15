@@ -93,8 +93,8 @@ export default function Overview() {
   };
 
   return (
-    <main className="flex h-full overflow-auto items-center justify-center">
-      <div className="w-full max-w-3xl space-y-8">
+    <main className="flex overflow-auto items-center h-full pb-16 justify-center">
+      <div className="w-full max-w-3xl space-y-4">
         <div className="border rounded-2xl p-6 shadow-sm">
           <div className="text-center space-y-2 mb-6">
             <Image

@@ -122,14 +122,10 @@ async function startServer() {
       await Promise.all([
         pubClient
           .quit()
-          .catch((err) =>
-            logger.error("Error closing Redis pub client:", err)
-          ),
+          .catch((err) => logger.error("Error closing Redis pub client:", err)),
         subClient
           .quit()
-          .catch((err) =>
-            logger.error("Error closing Redis sub client:", err)
-          ),
+          .catch((err) => logger.error("Error closing Redis sub client:", err)),
       ]);
       server.close(() => process.exit(0));
     };

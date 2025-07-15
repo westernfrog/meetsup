@@ -14,6 +14,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { Button } from "../ui/button";
 import { useRouter } from "next/navigation";
+import { useSocket } from "@/lib/socket";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
+import { useState } from "react";
 
 const navigation = [
   { name: "New Chat", href: "/", icon: CirclePlusIcon },
@@ -122,6 +126,49 @@ const placeholderChats = [
 
 export default function Aside(params) {
   const router = useRouter();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const { socket, isReady } = useSocket();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("chats");
+  const [deletingConversation, setDeletingConversation] = useState(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Fetch conversations using TanStack Query
+  const {
+    data: conversations,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: async () => {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations`,
+        { credentials: "include" }
+      );
+
+      if (!res.ok) {
+        throw new Error("Failed to fetch conversations");
+      }
+
+      const data = await res.json();
+      return data.conversations
+        .filter((c) => c.user1 && c.user2)
+        .sort(
+          (a, b) =>
+            new Date(b.messages?.[0]?.createdAt ?? 0).getTime() -
+            new Date(a.messages?.[0]?.createdAt ?? 0).getTime()
+        );
+    },
+    enabled: !!user,
+    refetchInterval: 2000,
+    staleTime: 5000,
+  });
+
+  console.log(conversations);
+
   return (
     <>
       <aside className="flex flex-col gap-2 h-full">
@@ -165,7 +212,80 @@ export default function Aside(params) {
             ))}
           </div>
         </div>
-        {false ? (
+        {isLoading ? (
+          <div className="flex flex-col gap-4 items-center justify-center h-full p-3">
+            <span>Loading...</span>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col gap-4 items-center justify-center h-full p-3">
+            <span className="w-64 text-center text-red-500">
+              {error.message}
+            </span>
+          </div>
+        ) : conversations && conversations.length > 0 ? (
+          <div className="flex flex-col gap-1 overflow-y-auto flex-1 min-h-0 pr-2">
+            {conversations.map((chat, index) => {
+              const otherUser = chat.user1.id === user.id ? chat.user2 : chat.user1;
+              return (
+                <button
+                  onClick={() => router.push(`/r/${chat.id}`)}
+                  key={index}
+                  className="cursor-pointer flex items-center justify-between gap-3 hover:bg-secondary p-3 rounded-md transition-all duration-200"
+                >
+                  <div className="relative overflow-hidden rounded-full w-12 h-12 border shadow bg-secondary">
+                    <Image
+                      src={
+                        otherUser.profilePics?.[0]?.url ||
+                        `https://api.dicebear.com/9.x/adventurer/png?seed=${otherUser.id}`
+                      }
+                      alt={otherUser.name}
+                      width={450}
+                      height={450}
+                      className="rounded-full w-full h-full object-center object-cover"
+                    />
+                    {onlineUsers.has(otherUser.id) && (
+                      <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-background" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium truncate flex items-center gap-2">
+                        {otherUser.name}
+                        {otherUser.gender == "male" ? (
+                          <MarsIcon size={16} className="stroke-blue-500" />
+                        ) : (
+                          <VenusIcon size={16} className="stroke-pink-500" />
+                        )}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(
+                          chat.messages?.[0]?.createdAt
+                        ).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-gray-500">
+                      <span className="truncate max-w-[260px]">
+                        {chat.messages?.[0]?.content}
+                      </span>
+                      {chat.messages?.[0]?.seen ? (
+                        <span className="text-emerald-500 font-medium">
+                          <CheckCheckIcon size={18} />
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">
+                          <CheckIcon size={18} />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
           <div className="flex flex-col gap-4 items-center justify-center h-full p-3">
             <Image
               src="https://cdn-icons-png.flaticon.com/512/948/948593.png"
@@ -177,58 +297,6 @@ export default function Aside(params) {
             <span className="w-64 text-center text-gray-600">
               Looks like you are the popular one here. No messages yet!
             </span>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0 pr-2">
-            {placeholderChats.map((chat, index) => (
-              <button
-                onClick={() => router.push("/r/21212")}
-                key={index}
-                className="cursor-pointer flex items-center justify-between gap-3 hover:bg-secondary p-3 rounded-md transition-all duration-200"
-              >
-                <div className="relative overflow-hidden rounded-md">
-                  <Image
-                    src={chat.avatar}
-                    alt={chat.name}
-                    width={50}
-                    height={50}
-                    className="rounded-full"
-                  />
-                  {chat.online && (
-                    <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-background" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium truncate flex items-center gap-2">
-                      {chat.name}
-                      {chat.gender == "male" ? (
-                        <MarsIcon size={16} className="stroke-blue-500" />
-                      ) : (
-                        <VenusIcon size={16} className="stroke-pink-500" />
-                      )}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {chat.timestamp}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-gray-500">
-                    <span className="truncate max-w-[260px]">
-                      {chat.lastMessage}
-                    </span>
-                    {chat.read ? (
-                      <span className="text-emerald-500 font-medium">
-                        <CheckCheckIcon size={18} />
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">
-                        <CheckIcon size={18} />
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            ))}
           </div>
         )}
       </aside>

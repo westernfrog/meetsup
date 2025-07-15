@@ -17,9 +17,34 @@ router.get("/conversations", verifyFirebaseSession, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const conversations = await prisma.conversation.findMany({
+    const initialConversations = await prisma.conversation.findMany({
       where: {
         OR: [{ user1Id: user.id }, { user2Id: user.id }],
+      },
+      select: {
+        id: true,
+        user1Id: true,
+        user2Id: true,
+      },
+    });
+
+    const validConversationIds = [];
+    for (const convo of initialConversations) {
+      const user1Exists = await prisma.user.findUnique({
+        where: { id: convo.user1Id },
+      });
+      const user2Exists = await prisma.user.findUnique({
+        where: { id: convo.user2Id },
+      });
+
+      if (user1Exists && user2Exists) {
+        validConversationIds.push(convo.id);
+      }
+    }
+
+    const conversations = await prisma.conversation.findMany({
+      where: {
+        id: { in: validConversationIds },
       },
       include: {
         user1: {
@@ -82,6 +107,11 @@ router.get("/conversations/:id", verifyFirebaseSession, async (req, res) => {
 
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    // Check if the current user is a participant in the conversation
+    if (conversation.user1Id !== user.id && conversation.user2Id !== user.id) {
+      return res.status(403).json({ error: "Unauthorized to access this conversation" });
     }
 
     res.json({ conversation });

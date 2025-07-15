@@ -36,12 +36,19 @@ router.post("/auth/anonymous", verifyFIdToken, async (req, res) => {
         length: 2,
       });
 
+      const getRandomGender = () => {
+        const genders = ["MALE", "FEMALE"];
+        return genders[Math.floor(Math.random() * genders.length)];
+      };
+
+      const generatedGender = getRandomGender();
+
       user = await prisma.user.create({
         data: {
           fId: req.firebaseUID,
           name: generatedName,
           age: 18,
-          gender: "ANY",
+          gender: generatedGender,
           interests: [],
           profilePics: [],
         },
@@ -159,7 +166,9 @@ router.put("/auth/profile", verifyFirebaseSession, async (req, res) => {
     res.json({ user: updatedUser });
   } catch (error) {
     console.error("Profile update error:", error.message, error.stack);
-    res.status(500).json({ error: "Internal server error", details: error.message });
+    res
+      .status(500)
+      .json({ error: "Internal server error", details: error.message });
   }
 });
 

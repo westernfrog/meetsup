@@ -170,7 +170,6 @@ export default function Profile({ isOpen, onClose }) {
   const genderOptions = [
     { value: "MALE", label: "Male" },
     { value: "FEMALE", label: "Female" },
-    { value: "ANY", label: "Any" },
   ];
 
   return (
@@ -345,7 +344,7 @@ export default function Profile({ isOpen, onClose }) {
                         onChange={(e) =>
                           setEditedProfile((prev) => ({
                             ...prev,
-                            age: parseInt(e.target.value),
+                            age: (e.target.value),
                           }))
                         }
                         placeholder="Age"

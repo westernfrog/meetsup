@@ -21,6 +21,18 @@ const findMatch = async (socket, io) => {
     const waitingUser = waitingEntry.user;
     const waitingPreferences = waitingEntry.preferences;
 
+    // Check if a conversation already exists
+    const existingConversation = await prisma.conversation.findFirst({
+      where: {
+        OR: [
+          { user1Id: currentUser.id, user2Id: waitingUser.id },
+          { user1Id: waitingUser.id, user2Id: currentUser.id },
+        ],
+      },
+    });
+
+    if (existingConversation) continue;
+
     // Check if both users match each other's preferences
     if (
       isMatch(waitingUser, currentPreferences) &&
@@ -55,6 +67,18 @@ const findMatch = async (socket, io) => {
       continue;
     }
 
+    // Check if a conversation already exists
+    const existingConversation = await prisma.conversation.findFirst({
+      where: {
+        OR: [
+          { user1Id: currentUser.id, user2Id: onlineUser.id },
+          { user1Id: onlineUser.id, user2Id: currentUser.id },
+        ],
+      },
+    });
+
+    if (existingConversation) continue;
+
     // Check if the online user matches the current user's preferences
     if (isMatch(onlineUser, currentPreferences)) {
       await createMatch(
@@ -82,8 +106,17 @@ const isMatch = (user, preferences) => {
     return false;
   }
 
-  if (gender && gender !== "ANY" && user.gender !== gender) {
-    return false;
+  if (gender) {
+    if (gender === "ANY") {
+      // If preference is ANY, it matches any gender
+      return true;
+    } else if (user.gender === "ANY") {
+      // If user's gender is ANY, it matches any preference
+      return true;
+    } else if (user.gender !== gender) {
+      // Otherwise, genders must strictly match
+      return false;
+    }
   }
 
   return true;

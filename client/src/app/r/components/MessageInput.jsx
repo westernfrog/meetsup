@@ -5,13 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Mic, Paperclip, Send, X, StopCircle } from "lucide-react";
 import { useState, useRef } from "react";
 
-export default function MessageInput(params) {
+export default function MessageInput({ onSendMessage, socket, roomId, currentUser }) {
   const [selectedImages, setSelectedImages] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [message, setMessage] = useState("");
   const fileInputRef = useRef(null);
   const recordingIntervalRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const handleImageSelect = (event) => {
     const files = Array.from(event.target.files || []);
@@ -63,14 +64,37 @@ export default function MessageInput(params) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleMessageChange = (e) => {
+    setMessage(e.target.value);
+    if (socket && roomId && currentUser) {
+      if (e.target.value.length > 0) {
+        socket.emit("typing:start");
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+        typingTimeoutRef.current = setTimeout(() => {
+          socket.emit("typing:stop");
+        }, 3000); // Stop typing after 3 seconds of inactivity
+      } else {
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+        socket.emit("typing:stop");
+      }
+    }
+  };
+
   const handleSend = () => {
     if (message.trim() || selectedImages.length > 0) {
-      console.log("Sending:", {
-        message,
-        images: selectedImages.map((img) => img.name),
-      });
+      onSendMessage(message, selectedImages);
       setMessage("");
       setSelectedImages([]);
+      if (socket && roomId && currentUser) {
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+        socket.emit("typing:stop");
+      }
     }
   };
 
@@ -128,7 +152,7 @@ export default function MessageInput(params) {
               <Input
                 placeholder="Type your message here..."
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={handleMessageChange}
                 onKeyPress={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();

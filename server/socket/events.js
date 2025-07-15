@@ -55,7 +55,7 @@ const setupSocketEvents = (io) => {
       }
     });
 
-    socket.on("message:send", async ({ roomId, content, type, imageId }) => {
+    socket.on("message:send", async ({ roomId, content, type, imageUrl }) => {
       const senderId = socket.user.id;
 
       try {
@@ -63,14 +63,15 @@ const setupSocketEvents = (io) => {
           data: {
             conversationId: roomId,
             senderId,
-            content,
+            content: content || null,
             type,
-            imageId,
+            imageId: imageUrl || null,
           },
         });
 
         io.to(roomId).emit("message:receive", message);
       } catch (err) {
+        console.error("Prisma message creation error:", err);
         socket.emit("error", "Failed to send message");
       }
     });
